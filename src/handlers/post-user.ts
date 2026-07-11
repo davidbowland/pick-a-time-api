@@ -4,7 +4,6 @@ import { createUser, getSession } from '../services/dynamodb'
 import { emptyGrid } from '../services/occurrences'
 import { AvailabilityRecord, APIGatewayProxyEventV2, APIGatewayProxyResultV2, UserRecord } from '../types'
 import { extractAuthContext } from '../utils/auth'
-import { PHONE_REGEX } from '../utils/events'
 import { generateUserId } from '../utils/id-generator'
 import { log, logError } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
@@ -24,14 +23,11 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
     const userId = generateUserId(users)
     const auth = extractAuthContext(event)
-    const phone = auth.googlePhone && PHONE_REGEX.test(auth.googlePhone) ? auth.googlePhone : null
 
     const user: UserRecord = {
       expiration: session.expiration,
       googleSub: auth.googleSub,
       name: auth.googleName ?? null,
-      phone,
-      textsSent: 0,
       userId,
     }
 

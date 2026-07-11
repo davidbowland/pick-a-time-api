@@ -1,4 +1,4 @@
-import { getRecaptchaSecretKey, getSmsApiKey } from '@services/secrets'
+import { getRecaptchaSecretKey } from '@services/secrets'
 
 const mockSend = jest.fn()
 jest.mock('@aws-sdk/client-ssm', () => ({
@@ -23,15 +23,6 @@ describe('secrets', () => {
       await getRecaptchaSecretKey(() => 2_000_000)
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({ Name: '/pick-a-time/recaptcha-secret-key', WithDecryption: true }),
-      )
-    })
-  })
-
-  describe('getSmsApiKey', () => {
-    it('should fetch the configured SMS parameter name with decryption', async () => {
-      await getSmsApiKey(() => 3_000_000)
-      expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({ Name: 'sms-queue-api-key-test', WithDecryption: true }),
       )
     })
   })

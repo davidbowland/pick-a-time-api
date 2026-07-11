@@ -29,8 +29,6 @@ describe('post-user', () => {
       const body = JSON.parse((result as { body: string }).body)
       expect(body.userId).toBe('brave-tiger')
       expect(body.name).toBeNull()
-      expect(body.phone).toBeNull()
-      expect(body.textsSent).toBe(0)
       expect(body.googleSub).toBeUndefined()
     })
 

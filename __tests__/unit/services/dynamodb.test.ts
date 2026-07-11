@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
-import { ConflictError, NotFoundError, RateLimitError } from '@errors'
+import { ConflictError, NotFoundError } from '@errors'
 
 import { availabilityRecord, session, sessionId, userId, userRecord } from '../__mocks__'
 import {
@@ -9,7 +9,6 @@ import {
   getAvailability,
   getSession,
   getUser,
-  incrementTextsSent,
   putNewSession,
   updateAvailability,
   updateUser,
@@ -214,7 +213,6 @@ describe('dynamodb', () => {
                   expiration: { N: `${userRecord.expiration}` },
                   PK: { S: sessionId },
                   SK: { S: `USER#${userId}` },
-                  textsSent: { N: `${userRecord.textsSent}` },
                 },
                 TableName: 'pick-a-time-table',
               },
@@ -279,43 +277,6 @@ describe('dynamodb', () => {
           UpdateExpression: 'SET #data = :data',
         }),
       )
-    })
-  })
-
-  describe('incrementTextsSent', () => {
-    it('should increment textsSent with condition textsSent < limit', async () => {
-      mockSend.mockResolvedValueOnce({})
-
-      await incrementTextsSent(sessionId, userId, 5)
-
-      expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ConditionExpression: '#textsSent < :limit',
-          ExpressionAttributeNames: { '#textsSent': 'textsSent' },
-          ExpressionAttributeValues: {
-            ':increment': { N: '1' },
-            ':limit': { N: '5' },
-          },
-          Key: {
-            PK: { S: sessionId },
-            SK: { S: `USER#${userId}` },
-          },
-          TableName: 'pick-a-time-table',
-          UpdateExpression: 'SET #textsSent = #textsSent + :increment',
-        }),
-      )
-    })
-
-    it('should throw RateLimitError when condition fails (at cap)', async () => {
-      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: 'fail' }))
-
-      await expect(incrementTextsSent(sessionId, userId, 5)).rejects.toThrow(RateLimitError)
-    })
-
-    it('should rethrow non-condition errors', async () => {
-      mockSend.mockRejectedValueOnce(new Error('network error'))
-
-      await expect(incrementTextsSent(sessionId, userId, 5)).rejects.toThrow('network error')
     })
   })
 })

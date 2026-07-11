@@ -6,12 +6,10 @@ import {
   AvailabilityPatchInput,
   NewPlanInput,
   PatchOperation,
-  ShareInput,
 } from '../types'
 
-export const PHONE_REGEX = /^\+1[2-9]\d{9}$/
 const ALLOWED_PATCH_OPS = ['replace']
-const ALLOWED_PATCH_PATHS = ['/name', '/phone']
+const ALLOWED_PATCH_PATHS = ['/name']
 
 const requireBody = (event: APIGatewayProxyEventV2): string => {
   const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, 'base64').toString('utf8') : event.body
@@ -132,14 +130,6 @@ export const parseUserPatch = (event: APIGatewayProxyEventV2): PatchOperation[] 
         throw new ValidationError('name must be 50 characters or fewer')
       }
     }
-    if (op.path === '/phone') {
-      if (!('value' in op) || typeof op.value !== 'string') {
-        throw new ValidationError('phone must be a string')
-      }
-      if (!PHONE_REGEX.test(op.value)) {
-        throw new ValidationError('phone must match format +1XXXXXXXXXX')
-      }
-    }
   }
 
   return ops
@@ -151,20 +141,6 @@ export const extractRecaptchaToken = (event: APIGatewayProxyEventV2): string => 
     throw new ValidationError('x-recaptcha-token header is required')
   }
   return token
-}
-
-export const parseShareBody = (event: APIGatewayProxyEventV2): ShareInput => {
-  const body = parseEventBody(event) as Record<string, unknown>
-
-  if (typeof body.phone !== 'string' || !PHONE_REGEX.test(body.phone)) {
-    throw new ValidationError('phone must match format +1XXXXXXXXXX')
-  }
-
-  if (body.type !== 'text') {
-    throw new ValidationError('type must be "text"')
-  }
-
-  return { phone: body.phone, type: 'text' }
 }
 
 export const parseAvailabilityPatch = (event: APIGatewayProxyEventV2): AvailabilityPatchInput => {

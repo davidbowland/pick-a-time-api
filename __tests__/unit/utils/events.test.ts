@@ -2,13 +2,7 @@ import { ValidationError } from '@errors'
 
 import { newPlanInput } from '../__mocks__'
 import { APIGatewayProxyEventV2 } from '@types'
-import {
-  extractRecaptchaToken,
-  parseAvailabilityPatch,
-  parseNewPlanBody,
-  parseShareBody,
-  parseUserPatch,
-} from '@utils/events'
+import { extractRecaptchaToken, parseAvailabilityPatch, parseNewPlanBody, parseUserPatch } from '@utils/events'
 
 const makeEvent = (overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 =>
   ({
@@ -79,12 +73,6 @@ describe('events', () => {
       expect(result).toEqual(ops)
     })
 
-    it('should accept valid phone patch', () => {
-      const ops = [{ op: 'replace', path: '/phone', value: '+12025551234' }]
-      const result = parseUserPatch(makeEvent(withBody(ops)))
-      expect(result).toEqual(ops)
-    })
-
     it('should throw on add op', () => {
       const ops = [{ op: 'add', path: '/name', value: 'Bob' }]
       expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
@@ -105,18 +93,13 @@ describe('events', () => {
       expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
     })
 
-    it('should throw on path that starts with /phone but is not exact', () => {
-      const ops = [{ op: 'replace', path: '/phoneExtra', value: 'x' }]
-      expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
-    })
-
     it('should throw on remove op', () => {
       const ops = [{ op: 'remove', path: '/name' }]
       expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
     })
 
     it('should throw on move op', () => {
-      const ops = [{ op: 'move', path: '/name', from: '/phone' }]
+      const ops = [{ op: 'move', path: '/name', from: '/name' }]
       expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
     })
 
@@ -135,16 +118,6 @@ describe('events', () => {
       expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
     })
 
-    it('should throw on invalid phone format', () => {
-      const ops = [{ op: 'replace', path: '/phone', value: '555-1234' }]
-      expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
-    })
-
-    it('should throw when phone value is an array', () => {
-      const ops = [{ op: 'replace', path: '/phone', value: ['+15551234567'] }]
-      expect(() => parseUserPatch(makeEvent(withBody(ops)))).toThrow(ValidationError)
-    })
-
     it('should throw when body is not an array', () => {
       expect(() => parseUserPatch(makeEvent(withBody({ op: 'replace', path: '/name' })))).toThrow(ValidationError)
     })
@@ -159,28 +132,6 @@ describe('events', () => {
     it('should throw when token is missing', () => {
       const event = makeEvent({ headers: {} })
       expect(() => extractRecaptchaToken(event)).toThrow(ValidationError)
-    })
-  })
-
-  describe('parseShareBody', () => {
-    it('should parse valid share body', () => {
-      const body = { phone: '+12025551234', type: 'text' }
-      expect(parseShareBody(makeEvent(withBody(body)))).toEqual(body)
-    })
-
-    it('should throw on invalid phone', () => {
-      const body = { phone: '555-1234', type: 'text' }
-      expect(() => parseShareBody(makeEvent(withBody(body)))).toThrow(ValidationError)
-    })
-
-    it('should throw on invalid type', () => {
-      const body = { phone: '+12025551234', type: 'email' }
-      expect(() => parseShareBody(makeEvent(withBody(body)))).toThrow(ValidationError)
-    })
-
-    it('should throw when body is null', () => {
-      const event = makeEvent({ body: null } as unknown as Partial<APIGatewayProxyEventV2>)
-      expect(() => parseShareBody(event)).toThrow(ValidationError)
     })
   })
 

@@ -10,7 +10,7 @@ import {
 } from '@aws-sdk/client-dynamodb'
 
 import { dynamodbTableName } from '../config'
-import { ConflictError, NotFoundError, RateLimitError } from '../errors'
+import { ConflictError, NotFoundError } from '../errors'
 import { AvailabilityRecord, PlanRecord, SessionWithUsers, UserRecord } from '../types'
 import { xrayCapture } from '../utils/logging'
 
@@ -148,7 +148,6 @@ export const createUser = async (
             expiration: { N: `${user.expiration}` },
             PK: { S: sessionId },
             SK: { S: `USER#${user.userId}` },
-            textsSent: { N: `${user.textsSent}` },
           },
           TableName: dynamodbTableName,
         },
@@ -206,36 +205,4 @@ export const updateUser = async (sessionId: string, userId: string, user: UserRe
     UpdateExpression: 'SET #data = :data',
   })
   await dynamodb.send(command)
-}
-
-/**
- * Atomically increment textsSent if below the limit.
- * Throws RateLimitError if the user has already hit the cap.
- */
-export const incrementTextsSent = async (sessionId: string, userId: string, limit: number): Promise<void> => {
-  const command = new UpdateItemCommand({
-    ConditionExpression: '#textsSent < :limit',
-    ExpressionAttributeNames: {
-      '#textsSent': 'textsSent',
-    },
-    ExpressionAttributeValues: {
-      ':increment': { N: '1' },
-      ':limit': { N: `${limit}` },
-    },
-    Key: {
-      PK: { S: sessionId },
-      SK: { S: `USER#${userId}` },
-    },
-    TableName: dynamodbTableName,
-    UpdateExpression: 'SET #textsSent = #textsSent + :increment',
-  })
-
-  try {
-    await dynamodb.send(command)
-  } catch (error) {
-    if (error instanceof ConditionalCheckFailedException) {
-      throw new RateLimitError('SMS rate limit exceeded')
-    }
-    throw error
-  }
 }

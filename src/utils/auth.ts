@@ -21,6 +21,5 @@ export const extractAuthContext = (event: APIGatewayProxyEventV2): AuthContext =
     isAuthenticated: true,
     googleSub: typeof claims.sub === 'string' ? claims.sub : null,
     googleName: typeof claims.name === 'string' ? claims.name : undefined,
-    googlePhone: typeof claims.phone_number === 'string' ? claims.phone_number : undefined,
   }
 }

@@ -1,5 +1,5 @@
 /* eslint sort-keys:0 */
-import { AvailabilityRecord, PatchOperation, PlanRecord, ShareInput, UserRecord } from '@types'
+import { AvailabilityRecord, PatchOperation, PlanRecord, UserRecord } from '@types'
 
 // Session (Plan)
 
@@ -25,8 +25,6 @@ export const userRecord: UserRecord = {
   userId: 'fuzzy-penguin',
   googleSub: null,
   name: null,
-  phone: null,
-  textsSent: 0,
   expiration: 1728547851,
 }
 
@@ -54,11 +52,6 @@ export const newPlanInput = {
   startHour: 16,
   endHour: 20,
   timezone: 'America/Chicago',
-}
-
-export const shareInput: ShareInput = {
-  phone: '+15551234567',
-  type: 'text',
 }
 
 // JSON Patch

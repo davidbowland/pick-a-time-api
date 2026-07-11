@@ -1,6 +1,6 @@
 import { GetParameterCommand, SSM } from '@aws-sdk/client-ssm'
 
-import { recaptchaSecretKeyParamName, smsApiKeyParamName } from '../config'
+import { recaptchaSecretKeyParamName } from '../config'
 import { xrayCapture } from '../utils/logging'
 
 const ssm = xrayCapture(new SSM({}))
@@ -30,5 +30,3 @@ const getParameter = async (name: string, now: () => number = Date.now): Promise
 
 export const getRecaptchaSecretKey = (now: () => number = Date.now): Promise<string> =>
   getParameter(recaptchaSecretKeyParamName, now)
-
-export const getSmsApiKey = (now: () => number = Date.now): Promise<string> => getParameter(smsApiKeyParamName, now)

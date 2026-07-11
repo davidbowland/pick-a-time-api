@@ -12,7 +12,6 @@ const applyUserPatch = (user: UserRecord, ops: PatchOperation[]): UserRecord => 
   const updated = { ...user }
   for (const op of ops) {
     if (op.path === '/name') updated.name = op.value as string
-    if (op.path === '/phone') updated.phone = op.value as string
   }
   return updated
 }

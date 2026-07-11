@@ -29,8 +29,6 @@ export interface UserRecord {
   userId: string
   googleSub: string | null
   name: string | null
-  phone: string | null
-  textsSent: number
   expiration: number
 }
 
@@ -53,11 +51,6 @@ export interface NewPlanInput {
   timezone: string
 }
 
-export interface ShareInput {
-  phone: string
-  type: 'text'
-}
-
 export interface AvailabilityCell {
   hourIndex: number
   dayIndex: number
@@ -76,15 +69,4 @@ export interface AuthContext {
   isAuthenticated: boolean
   googleSub: string | null
   googleName?: string
-  googlePhone?: string
-}
-
-// SMS
-
-export type MessageType = 'PROMOTIONAL' | 'TRANSACTIONAL'
-
-export interface SMSMessage {
-  to: string
-  contents: string
-  messageType?: MessageType
 }

@@ -41,8 +41,6 @@ Mappings:
       logStreamFunction: log-subscriber
       maxPlanWeeks: '12'
       sessionsTable: pick-a-time-api-sessions
-      smsApiUrl: https://sms-queue-api.dbowland.com/v1
-      ssmSmsApiKeyName: sms-queue-api-key
       zoneId: Z09477181IUYK36D4AQQV
     test:
       certificateEdge: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
@@ -53,8 +51,6 @@ Mappings:
       logStreamFunction: log-subscriber-test
       maxPlanWeeks: '12'
       sessionsTable: pick-a-time-api-sessions-test
-      smsApiUrl: https://sms-queue-api.bowland.link/v1
-      ssmSmsApiKeyName: sms-queue-api-key-test
       zoneId: Z01312547RGU1BYKIJXY
 
 Globals:
@@ -559,23 +555,9 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub
-                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParamName}'
-                - ParamName: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
       Environment:
         Variables:
-          CORS_DOMAIN: !FindInMap [EnvironmentMap, !Ref Environment, corsDomain]
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          SMS_API_KEY_PARAM_NAME: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-          SMS_API_URL: !FindInMap [EnvironmentMap, !Ref Environment, smsApiUrl]
       Events:
         ApiKey:
           Type: Api
@@ -635,23 +617,9 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub
-                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParamName}'
-                - ParamName: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
       Environment:
         Variables:
-          CORS_DOMAIN: !FindInMap [EnvironmentMap, !Ref Environment, corsDomain]
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          SMS_API_KEY_PARAM_NAME: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-          SMS_API_URL: !FindInMap [EnvironmentMap, !Ref Environment, smsApiUrl]
       Events:
         ApiKey:
           Type: Api
@@ -826,78 +794,6 @@ Resources:
         - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PatchAvailabilityLogGroup
-
-  ## Share / SMS
-
-  ShareSessionFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/share-session.handler
-      MemorySize: 1536
-      Description: pick-a-time-api share session via SMS
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
-            TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub
-                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParamName}'
-                - ParamName: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
-      Environment:
-        Variables:
-          CORS_DOMAIN: !FindInMap [EnvironmentMap, !Ref Environment, corsDomain]
-          DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          MAX_USERS_PER_SESSION: '20'
-          SMS_API_KEY_PARAM_NAME: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-          SMS_API_URL: !FindInMap [EnvironmentMap, !Ref Environment, smsApiUrl]
-          SMS_RATE_LIMIT_PER_USER: '5'
-      Events:
-        Http:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /sessions/{sessionId}/users/{userId}/share
-            Method: post
-            Auth:
-              Authorizer: CognitoAuthorizer
-      Timeout: 15
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/share-session.ts
-
-  ShareSessionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${ShareSessionFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'pick-a-time-api'
-        - Key: 'created-for'
-          Value: 'pick-a-time'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  ShareSessionLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref ShareSessionLogGroup
 
   # Cognito — Google-only authentication
 

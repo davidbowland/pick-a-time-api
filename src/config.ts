@@ -18,10 +18,3 @@ export const maxUsersPerSession = parseInt(process.env.MAX_USERS_PER_SESSION as 
 // reCAPTCHA
 
 export const recaptchaSecretKeyParamName = '/pick-a-time/recaptcha-secret-key'
-
-// SMS
-
-export const corsDomain = process.env.CORS_DOMAIN as string
-export const smsApiKeyParamName = process.env.SMS_API_KEY_PARAM_NAME as string
-export const smsApiUrl = process.env.SMS_API_URL as string
-export const smsRateLimitPerUser = parseInt(process.env.SMS_RATE_LIMIT_PER_USER as string, 10)

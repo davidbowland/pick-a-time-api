@@ -53,13 +53,11 @@ GET {{host}}/sessions/{{sessionId}}/users
 #   {
 #     "userId": "brave-tiger",
 #     "name": "Alice",
-#     "phone": "+15551234567",
 #     "expiration": 1725453600
 #   },
 #   {
 #     "userId": "clever-fox",
 #     "name": "Bob",
-#     "phone": null,
 #     "expiration": 1725453600
 #   }
 # ]
@@ -77,7 +75,6 @@ POST {{host}}/sessions/{{sessionId}}/users
 # {
 #   "userId": "clever-fox",
 #   "name": null,
-#   "phone": null,
 #   "expiration": 1725453600
 # }
 #
@@ -86,9 +83,9 @@ POST {{host}}/sessions/{{sessionId}}/users
 
 ###
 
-### Update user info (name, phone)
+### Update user info (name)
 # JSON Patch format. Allowed ops: replace.
-# Allowed paths: /name, /phone
+# Allowed paths: /name
 # Authenticated variant: PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/authed (Cognito JWT)
 
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}
@@ -98,11 +95,8 @@ Content-Type: application/json
   { "op": "replace", "path": "/name", "value": "Alice" }
 ]
 
-# Example: set phone
-# [{ "op": "replace", "path": "/phone", "value": "+15551234567" }]
-#
 # Response 200: updated user object
-# Response 400: disallowed path, name > 50 chars, invalid phone
+# Response 400: disallowed path, name > 50 chars
 # Response 404: session or user not found
 
 ###
@@ -139,30 +133,3 @@ Content-Type: application/json
 # Response 200: updated availability grid
 # Response 400: invalid weekIndex, cells, or resetToPattern
 # Response 404: session or user not found
-
-###
-
-### Share plan via SMS
-# Creates a new user with the recipient's phone and sends an SMS with a join link.
-# Requires Cognito JWT. The caller's Google sub must match the sharing user's sub.
-# Path includes the sharing user's ID for rate-limit tracking and ownership verification.
-
-POST {{host}}/sessions/{{sessionId}}/users/{{userId}}/share
-Content-Type: application/json
-Authorization: Bearer {{cognito-jwt}}
-
-{
-  "phone": "+15559876543",
-  "type": "text"
-}
-
-# Response 201:
-# { "userId": "clever-fox" }
-#
-# Response 400: invalid phone format, max users reached
-# Response 401: missing or invalid JWT
-# Response 403: caller's Google sub doesn't match sharing user, or user not linked
-# Response 404: session not found, sharing user not found, or expired
-# Response 422: phone number already in use in this session
-# Response 429: SMS rate limit exceeded (5 texts per user)
-# Response 500: SMS send failed (userId of created user included in error body)

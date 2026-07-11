@@ -2,6 +2,8 @@
 
 **Always commit changes** after completing work unless explicitly told not to.
 
+Use functional programming style where practical, including dependency injection, avoiding mutating objects or values, etc.
+
 ## Testing Standards
 
 **Jest clears all mocks automatically** (`clearMocks: true` in jest.config.ts). Never manually clear mocks.

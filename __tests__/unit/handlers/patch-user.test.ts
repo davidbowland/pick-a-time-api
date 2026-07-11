@@ -28,12 +28,6 @@ describe('patch-user', () => {
     expect(JSON.parse((result as { body: string }).body).name).toBe('Bright Heron')
   })
 
-  it('should apply a /phone patch', async () => {
-    const phoneEvent = { ...event, body: JSON.stringify([{ op: 'replace', path: '/phone', value: '+15551234567' }]) }
-    const result = await handler(phoneEvent)
-    expect(JSON.parse((result as { body: string }).body).phone).toBe('+15551234567')
-  })
-
   it('should reject a disallowed path', async () => {
     const badEvent = { ...event, body: JSON.stringify([{ op: 'replace', path: '/googleSub', value: 'x' }]) }
     const result = await handler(badEvent)

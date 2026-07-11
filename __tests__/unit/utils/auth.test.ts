@@ -22,14 +22,14 @@ describe('extractAuthContext', () => {
     expect(result).toEqual({ isAuthenticated: false, googleSub: null })
   })
 
-  it('should return authenticated with sub, name and phone from claims', () => {
+  it('should return authenticated with sub and name from claims', () => {
     const event = {
       ...baseEvent,
       requestContext: {
         ...baseEvent.requestContext,
         authorizer: {
           jwt: {
-            claims: { sub: 'abc123', name: 'Alice', phone_number: '+15551234567' },
+            claims: { sub: 'abc123', name: 'Alice' },
           },
         },
       },
@@ -39,11 +39,10 @@ describe('extractAuthContext', () => {
       isAuthenticated: true,
       googleSub: 'abc123',
       googleName: 'Alice',
-      googlePhone: '+15551234567',
     })
   })
 
-  it('should return authenticated with name only when phone and sub are missing', () => {
+  it('should return authenticated with name only when sub is missing', () => {
     const event = {
       ...baseEvent,
       requestContext: {
@@ -60,7 +59,6 @@ describe('extractAuthContext', () => {
       isAuthenticated: true,
       googleSub: null,
       googleName: 'Bob',
-      googlePhone: undefined,
     })
   })
 
@@ -71,7 +69,7 @@ describe('extractAuthContext', () => {
         ...baseEvent.requestContext,
         authorizer: {
           jwt: {
-            claims: { name: 123, phone_number: true },
+            claims: { name: 123 },
           },
         },
       },
@@ -81,7 +79,6 @@ describe('extractAuthContext', () => {
       isAuthenticated: true,
       googleSub: null,
       googleName: undefined,
-      googlePhone: undefined,
     })
   })
 })
