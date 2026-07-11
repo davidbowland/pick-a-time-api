@@ -84,6 +84,11 @@ describe('dynamodb', () => {
       mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ message: 'fail', $metadata: {} }))
       await expect(putNewSession(sessionId, session)).rejects.toThrow(ConflictError)
     })
+
+    it('should rethrow unrelated errors unchanged', async () => {
+      mockSend.mockRejectedValueOnce(new Error('ddb unavailable'))
+      await expect(putNewSession(sessionId, session)).rejects.toThrow('ddb unavailable')
+    })
   })
 
   describe('getAvailability', () => {
@@ -122,6 +127,11 @@ describe('dynamodb', () => {
     it('should throw ConflictError when availability already exists', async () => {
       mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ message: 'fail', $metadata: {} }))
       await expect(createAvailability(sessionId, availabilityRecord)).rejects.toThrow(ConflictError)
+    })
+
+    it('should rethrow unrelated errors unchanged', async () => {
+      mockSend.mockRejectedValueOnce(new Error('ddb unavailable'))
+      await expect(createAvailability(sessionId, availabilityRecord)).rejects.toThrow('ddb unavailable')
     })
   })
 
@@ -253,6 +263,11 @@ describe('dynamodb', () => {
       mockSend.mockRejectedValueOnce(new TransactionCanceledException({ $metadata: {}, message: 'fail' }))
 
       await expect(createUser(sessionId, userRecord, availabilityRecord)).rejects.toThrow(ConflictError)
+    })
+
+    it('should rethrow unrelated errors unchanged', async () => {
+      mockSend.mockRejectedValueOnce(new Error('ddb unavailable'))
+      await expect(createUser(sessionId, userRecord, availabilityRecord)).rejects.toThrow('ddb unavailable')
     })
   })
 

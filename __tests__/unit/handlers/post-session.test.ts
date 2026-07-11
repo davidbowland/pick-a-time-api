@@ -67,5 +67,17 @@ describe('post-session', () => {
       const result = await postSession(event, () => nowMs)
       expect(result).toEqual(expect.objectContaining({ statusCode: status.BAD_REQUEST.statusCode }))
     })
+
+    it('should return INTERNAL_SERVER_ERROR when every retry collides', async () => {
+      jest
+        .mocked(dynamodb)
+        .putNewSession.mockRejectedValueOnce(new ConflictError('Session ID already exists'))
+        .mockRejectedValueOnce(new ConflictError('Session ID already exists'))
+        .mockRejectedValueOnce(new ConflictError('Session ID already exists'))
+        .mockRejectedValueOnce(new ConflictError('Session ID already exists'))
+        .mockRejectedValueOnce(new ConflictError('Session ID already exists'))
+      const result = await postSession(event, () => nowMs)
+      expect(result).toEqual(expect.objectContaining({ statusCode: status.INTERNAL_SERVER_ERROR.statusCode }))
+    })
   })
 })

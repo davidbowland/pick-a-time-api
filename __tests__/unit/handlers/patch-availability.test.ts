@@ -129,4 +129,15 @@ describe('patch-availability', () => {
     const result = await handler(event)
     expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
   })
+
+  it('should return INTERNAL_SERVER_ERROR on an unexpected error', async () => {
+    jest.mocked(dynamodb).getAvailability.mockRejectedValueOnce(new Error('boom'))
+    const event = withBody({
+      weekIndex: null,
+      cells: [{ hourIndex: 0, dayIndex: 0, value: true }],
+      resetToPattern: false,
+    })
+    const result = await handler(event)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
+  })
 })

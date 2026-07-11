@@ -35,4 +35,10 @@ describe('get-availability', () => {
     const result = await handler(event)
     expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
   })
+
+  it('should return INTERNAL_SERVER_ERROR on an unexpected error', async () => {
+    jest.mocked(dynamodb).getAvailability.mockRejectedValueOnce(new Error('boom'))
+    const result = await handler(event)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
+  })
 })

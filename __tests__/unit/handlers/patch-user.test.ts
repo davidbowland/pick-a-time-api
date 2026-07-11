@@ -53,6 +53,12 @@ describe('patch-user', () => {
     expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
   })
 
+  it('should return INTERNAL_SERVER_ERROR on an unexpected error', async () => {
+    jest.mocked(dynamodb).getUser.mockRejectedValueOnce(new Error('boom'))
+    const result = await handler(event)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
+  })
+
   it('should fill in googleSub from auth context when unset', async () => {
     const authedEvent = {
       ...event,
