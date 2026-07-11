@@ -14,15 +14,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       return status.NOT_FOUND
     }
 
-    return {
-      ...status.OK,
-      body: JSON.stringify({
-        ...session,
-        filterClosingSoon: session.filterClosingSoon === true,
-        sessionId,
-        voterCount: users.length,
-      }),
-    }
+    return { ...status.OK, body: JSON.stringify({ ...session, participantCount: users.length }) }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND
     logError(error)

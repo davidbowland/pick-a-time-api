@@ -9,8 +9,9 @@ import {
   ValidationError,
 } from '../errors'
 import { createUser, getAllUsers, getSession, getUser, incrementTextsSent, updateUser } from '../services/dynamodb'
+import { emptyGrid } from '../services/occurrences'
 import { sendSms } from '../services/sms'
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, UserRecord } from '../types'
+import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, AvailabilityRecord, UserRecord } from '../types'
 import { extractAuthContext } from '../utils/auth'
 import { parseShareBody } from '../utils/events'
 import { generateUserId } from '../utils/id-generator'
@@ -65,17 +66,22 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       googleSub: null,
       name: null,
       phone,
-      subscribedRounds: [],
       textsSent: 0,
       userId,
-      votes: Array.from({ length: session.currentRound + 1 }, () => []),
     }
 
-    await createUser(sessionId, newUser)
+    const availability: AvailabilityRecord = {
+      expiration: session.expiration,
+      overrides: {},
+      template: emptyGrid(session.endHour - session.startHour, session.weekdays.length),
+      userId,
+    }
+
+    await createUser(sessionId, newUser, availability)
 
     try {
       const link = `${corsDomain}/s/${sessionId}?id=${userId}`
-      await sendSms(phone, `Help us decide where to eat! Tap here to vote: ${link}`)
+      await sendSms(phone, `Join the plan to add your hours: ${link}`)
     } catch (smsError) {
       // User was created and textsSent was incremented, but SMS failed.
       // The user stays — no delete. Caller gets an error so they can retry or inform the recipient another way.

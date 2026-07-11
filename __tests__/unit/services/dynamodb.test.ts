@@ -1,19 +1,17 @@
 import { ConditionalCheckFailedException, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
 import { ConflictError, NotFoundError, RateLimitError } from '@errors'
 
-import { choicesRecord, session, sessionId, userId, userRecord } from '../__mocks__'
+import { availabilityRecord, session, sessionId, userId, userRecord } from '../__mocks__'
 import {
+  createAvailability,
   createUser,
   getAllUsers,
-  getChoices,
+  getAvailability,
   getSession,
   getUser,
   incrementTextsSent,
-  putChoices,
   putNewSession,
-  putSession,
-  querySession,
-  updateSession,
+  updateAvailability,
   updateUser,
 } from '@services/dynamodb'
 
@@ -42,216 +40,101 @@ describe('dynamodb', () => {
   describe('getSession', () => {
     it('should fetch SESSION record by composite key', async () => {
       mockSend.mockResolvedValueOnce({
-        Item: {
-          Data: { S: JSON.stringify(session) },
-          version: { N: '3' },
-          users: { L: [{ S: 'fuzzy-penguin' }] },
-        },
+        Item: { Data: { S: JSON.stringify(session) }, users: { L: [{ S: userId }] } },
       })
-
       const result = await getSession(sessionId)
-
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
-          Key: {
-            PK: { S: sessionId },
-            SK: { S: 'SESSION' },
-          },
-          TableName: 'choosee-table',
+          Key: { PK: { S: sessionId }, SK: { S: 'SESSION' } },
+          TableName: 'pick-a-time-table',
         }),
       )
-      expect(result).toEqual({ session, users: ['fuzzy-penguin'], version: 3 })
-    })
-
-    it('should default version to 0 when attribute is missing', async () => {
-      mockSend.mockResolvedValueOnce({
-        Item: {
-          Data: { S: JSON.stringify(session) },
-          users: { L: [{ S: 'fuzzy-penguin' }] },
-        },
-      })
-
-      const result = await getSession(sessionId)
-      expect(result).toEqual({ session, users: ['fuzzy-penguin'], version: 0 })
+      expect(result).toEqual({ session, users: [userId] })
     })
 
     it('should default users to empty array when attribute is missing', async () => {
-      mockSend.mockResolvedValueOnce({
-        Item: { Data: { S: JSON.stringify(session) }, version: { N: '1' } },
-      })
-
+      mockSend.mockResolvedValueOnce({ Item: { Data: { S: JSON.stringify(session) } } })
       const result = await getSession(sessionId)
       expect(result.users).toEqual([])
     })
 
     it('should throw NotFoundError when Item is missing', async () => {
       mockSend.mockResolvedValueOnce({ Item: undefined })
-
       await expect(getSession(sessionId)).rejects.toThrow(NotFoundError)
-    })
-  })
-
-  describe('putSession', () => {
-    it('should store SESSION record with currentRound, expiration, and version as top-level attributes', async () => {
-      mockSend.mockResolvedValueOnce({})
-
-      await putSession(sessionId, session)
-
-      expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          Item: {
-            currentRound: { N: `${session.currentRound}` },
-            Data: { S: JSON.stringify(session) },
-            expiration: { N: `${session.expiration}` },
-            PK: { S: sessionId },
-            SK: { S: 'SESSION' },
-            version: { N: '0' },
-          },
-          TableName: 'choosee-table',
-        }),
-      )
     })
   })
 
   describe('putNewSession', () => {
     it('should store SESSION record with attribute_not_exists condition', async () => {
       mockSend.mockResolvedValueOnce({})
-
       await putNewSession(sessionId, session)
-
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
           ConditionExpression: 'attribute_not_exists(PK)',
           Item: {
-            currentRound: { N: `${session.currentRound}` },
             Data: { S: JSON.stringify(session) },
             expiration: { N: `${session.expiration}` },
             PK: { S: sessionId },
             SK: { S: 'SESSION' },
-            version: { N: '0' },
           },
-          TableName: 'choosee-table',
         }),
       )
     })
 
-    it('should throw ConflictError when session ID already exists', async () => {
-      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: 'fail' }))
-
+    it('should throw ConflictError on ID collision', async () => {
+      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ message: 'fail', $metadata: {} }))
       await expect(putNewSession(sessionId, session)).rejects.toThrow(ConflictError)
     })
-
-    it('should rethrow non-condition errors', async () => {
-      mockSend.mockRejectedValueOnce(new Error('network error'))
-
-      await expect(putNewSession(sessionId, session)).rejects.toThrow('network error')
-    })
   })
 
-  describe('updateSession', () => {
-    const updatedSession = { ...session, currentRound: 1 }
-
-    it('should update with condition expression on version', async () => {
-      mockSend.mockResolvedValueOnce({})
-
-      await updateSession(sessionId, 0, updatedSession)
-
+  describe('getAvailability', () => {
+    it('should fetch AVAIL#<userId> record', async () => {
+      mockSend.mockResolvedValueOnce({ Item: { Data: { S: JSON.stringify(availabilityRecord) } } })
+      const result = await getAvailability(sessionId, userId)
       expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ConditionExpression: '#version = :expectedVersion',
-          ExpressionAttributeNames: {
-            '#currentRound': 'currentRound',
-            '#data': 'Data',
-            '#version': 'version',
-          },
-          ExpressionAttributeValues: {
-            ':data': { S: JSON.stringify(updatedSession) },
-            ':expectedVersion': { N: '0' },
-            ':newRound': { N: '1' },
-            ':newVersion': { N: '1' },
-          },
-          Key: {
-            PK: { S: sessionId },
-            SK: { S: 'SESSION' },
-          },
-          TableName: 'choosee-table',
-          UpdateExpression: 'SET #data = :data, #currentRound = :newRound, #version = :newVersion',
-        }),
+        expect.objectContaining({ Key: { PK: { S: sessionId }, SK: { S: `AVAIL#${userId}` } } }),
       )
-    })
-
-    it('should return the new version number', async () => {
-      mockSend.mockResolvedValueOnce({})
-
-      const newVersion = await updateSession(sessionId, 5, updatedSession)
-      expect(newVersion).toBe(6)
-    })
-
-    it('should not include version in the stored Data blob', async () => {
-      mockSend.mockResolvedValueOnce({})
-
-      await updateSession(sessionId, 0, updatedSession)
-
-      const call = mockSend.mock.calls[mockSend.mock.calls.length - 1][0]
-      const storedData = JSON.parse(call.ExpressionAttributeValues[':data'].S)
-      expect(storedData.version).toBeUndefined()
-    })
-
-    it('should throw ConflictError when condition expression fails', async () => {
-      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ $metadata: {}, message: 'fail' }))
-
-      await expect(updateSession(sessionId, 0, updatedSession)).rejects.toThrow(ConflictError)
-    })
-
-    it('should rethrow non-condition errors', async () => {
-      mockSend.mockRejectedValueOnce(new Error('network error'))
-
-      await expect(updateSession(sessionId, 0, updatedSession)).rejects.toThrow('network error')
-    })
-  })
-
-  describe('getChoices', () => {
-    it('should fetch CHOICES record by composite key', async () => {
-      mockSend.mockResolvedValueOnce({
-        Item: { Data: { S: JSON.stringify(choicesRecord) } },
-      })
-
-      const result = await getChoices(sessionId)
-
-      expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          Key: {
-            PK: { S: sessionId },
-            SK: { S: 'CHOICES' },
-          },
-          TableName: 'choosee-table',
-        }),
-      )
-      expect(result).toEqual(choicesRecord)
+      expect(result).toEqual(availabilityRecord)
     })
 
     it('should throw NotFoundError when Item is missing', async () => {
       mockSend.mockResolvedValueOnce({ Item: undefined })
-
-      await expect(getChoices(sessionId)).rejects.toThrow(NotFoundError)
+      await expect(getAvailability(sessionId, userId)).rejects.toThrow(NotFoundError)
     })
   })
 
-  describe('putChoices', () => {
-    it('should store CHOICES record with expiration', async () => {
+  describe('createAvailability', () => {
+    it('should store AVAIL#<userId> record with attribute_not_exists condition', async () => {
       mockSend.mockResolvedValueOnce({})
-
-      await putChoices(sessionId, choicesRecord)
-
+      await createAvailability(sessionId, availabilityRecord)
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
+          ConditionExpression: 'attribute_not_exists(PK)',
           Item: {
-            Data: { S: JSON.stringify(choicesRecord) },
-            expiration: { N: `${choicesRecord.expiration}` },
+            Data: { S: JSON.stringify(availabilityRecord) },
+            expiration: { N: `${availabilityRecord.expiration}` },
             PK: { S: sessionId },
-            SK: { S: 'CHOICES' },
+            SK: { S: `AVAIL#${userId}` },
           },
-          TableName: 'choosee-table',
+        }),
+      )
+    })
+
+    it('should throw ConflictError when availability already exists', async () => {
+      mockSend.mockRejectedValueOnce(new ConditionalCheckFailedException({ message: 'fail', $metadata: {} }))
+      await expect(createAvailability(sessionId, availabilityRecord)).rejects.toThrow(ConflictError)
+    })
+  })
+
+  describe('updateAvailability', () => {
+    it('should overwrite the Data attribute', async () => {
+      mockSend.mockResolvedValueOnce({})
+      await updateAvailability(sessionId, userId, availabilityRecord)
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Key: { PK: { S: sessionId }, SK: { S: `AVAIL#${userId}` } },
+          UpdateExpression: 'SET #data = :data',
+          ExpressionAttributeValues: { ':data': { S: JSON.stringify(availabilityRecord) } },
         }),
       )
     })
@@ -271,7 +154,7 @@ describe('dynamodb', () => {
             PK: { S: sessionId },
             SK: { S: `USER#${userId}` },
           },
-          TableName: 'choosee-table',
+          TableName: 'pick-a-time-table',
         }),
       )
       expect(result).toEqual(userRecord)
@@ -299,7 +182,7 @@ describe('dynamodb', () => {
             ':skPrefix': { S: 'USER#' },
           },
           KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
-          TableName: 'choosee-table',
+          TableName: 'pick-a-time-table',
         }),
       )
       expect(result).toEqual([userRecord])
@@ -315,10 +198,10 @@ describe('dynamodb', () => {
   })
 
   describe('createUser', () => {
-    it('should transact PutItem USER with condition + UpdateItem SESSION to append userId', async () => {
+    it('should transact PutItem USER + PutItem AVAIL with condition + UpdateItem SESSION to append userId', async () => {
       mockSend.mockResolvedValueOnce({})
 
-      await createUser(sessionId, userRecord)
+      await createUser(sessionId, userRecord, availabilityRecord)
 
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -333,7 +216,19 @@ describe('dynamodb', () => {
                   SK: { S: `USER#${userId}` },
                   textsSent: { N: `${userRecord.textsSent}` },
                 },
-                TableName: 'choosee-table',
+                TableName: 'pick-a-time-table',
+              },
+            },
+            {
+              Put: {
+                ConditionExpression: 'attribute_not_exists(PK)',
+                Item: {
+                  Data: { S: JSON.stringify(availabilityRecord) },
+                  expiration: { N: `${availabilityRecord.expiration}` },
+                  PK: { S: sessionId },
+                  SK: { S: `AVAIL#${userId}` },
+                },
+                TableName: 'pick-a-time-table',
               },
             },
             {
@@ -347,7 +242,7 @@ describe('dynamodb', () => {
                   PK: { S: sessionId },
                   SK: { S: 'SESSION' },
                 },
-                TableName: 'choosee-table',
+                TableName: 'pick-a-time-table',
                 UpdateExpression: 'SET #users = list_append(if_not_exists(#users, :emptyList), :newUser)',
               },
             },
@@ -359,7 +254,7 @@ describe('dynamodb', () => {
     it('should throw ConflictError when user ID already exists', async () => {
       mockSend.mockRejectedValueOnce(new TransactionCanceledException({ $metadata: {}, message: 'fail' }))
 
-      await expect(createUser(sessionId, userRecord)).rejects.toThrow(ConflictError)
+      await expect(createUser(sessionId, userRecord, availabilityRecord)).rejects.toThrow(ConflictError)
     })
   })
 
@@ -380,7 +275,7 @@ describe('dynamodb', () => {
             PK: { S: sessionId },
             SK: { S: `USER#${userId}` },
           },
-          TableName: 'choosee-table',
+          TableName: 'pick-a-time-table',
           UpdateExpression: 'SET #data = :data',
         }),
       )
@@ -405,7 +300,7 @@ describe('dynamodb', () => {
             PK: { S: sessionId },
             SK: { S: `USER#${userId}` },
           },
-          TableName: 'choosee-table',
+          TableName: 'pick-a-time-table',
           UpdateExpression: 'SET #textsSent = #textsSent + :increment',
         }),
       )
@@ -421,39 +316,6 @@ describe('dynamodb', () => {
       mockSend.mockRejectedValueOnce(new Error('network error'))
 
       await expect(incrementTextsSent(sessionId, userId, 5)).rejects.toThrow('network error')
-    })
-  })
-
-  describe('querySession', () => {
-    it('should query all items in a session partition', async () => {
-      mockSend.mockResolvedValueOnce({
-        Items: [
-          { Data: { S: JSON.stringify(session) } },
-          { Data: { S: JSON.stringify(choicesRecord) } },
-          { Data: { S: JSON.stringify(userRecord) } },
-        ],
-      })
-
-      const result = await querySession(sessionId)
-
-      expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ExpressionAttributeValues: {
-            ':pk': { S: sessionId },
-          },
-          KeyConditionExpression: 'PK = :pk',
-          TableName: 'choosee-table',
-        }),
-      )
-      expect(result).toEqual([session, choicesRecord, userRecord])
-    })
-
-    it('should return empty array when session has no items', async () => {
-      mockSend.mockResolvedValueOnce({ Items: [] })
-
-      const result = await querySession(sessionId)
-
-      expect(result).toEqual([])
     })
   })
 })

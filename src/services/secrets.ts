@@ -1,6 +1,6 @@
 import { GetParameterCommand, SSM } from '@aws-sdk/client-ssm'
 
-import { googleApiKeyParamName, recaptchaSecretKeyParamName, smsApiKeyParamName } from '../config'
+import { recaptchaSecretKeyParamName, smsApiKeyParamName } from '../config'
 import { xrayCapture } from '../utils/logging'
 
 const ssm = xrayCapture(new SSM({}))
@@ -27,9 +27,6 @@ const getParameter = async (name: string, now: () => number = Date.now): Promise
   cache.set(name, { value, expiresAt: now() + CACHE_TTL_MS })
   return value
 }
-
-export const getGoogleApiKey = (now: () => number = Date.now): Promise<string> =>
-  getParameter(googleApiKeyParamName, now)
 
 export const getRecaptchaSecretKey = (now: () => number = Date.now): Promise<string> =>
   getParameter(recaptchaSecretKeyParamName, now)

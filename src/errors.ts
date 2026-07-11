@@ -1,16 +1,7 @@
-// Error codes — machine-stable identifiers for specific validation failures
-
-export enum ErrorCode {
-  ROUND_NOT_CURRENT = 'ROUND_NOT_CURRENT',
-}
-
 export class ValidationError extends Error {
-  errorCode?: ErrorCode
-
-  constructor(message: string, errorCode?: ErrorCode) {
+  constructor(message: string) {
     super(message)
     this.name = 'ValidationError'
-    this.errorCode = errorCode
   }
 }
 

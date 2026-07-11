@@ -1,0 +1,13 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "userId": "fuzzy-penguin"
+  },
+  "body": "{\"weekIndex\":null,\"cells\":[{\"hourIndex\":1,\"dayIndex\":0,\"value\":true}],\"resetToPattern\":false}",
+  "requestContext": {
+    "http": {
+      "method": "PATCH",
+      "path": "/v1/sessions/abc123/users/fuzzy-penguin/availability"
+    }
+  }
+}

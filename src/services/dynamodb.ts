@@ -11,56 +11,35 @@ import {
 
 import { dynamodbTableName } from '../config'
 import { ConflictError, NotFoundError, RateLimitError } from '../errors'
-import { ChoicesRecord, SessionRecord, UserRecord, VersionedSession } from '../types'
+import { AvailabilityRecord, PlanRecord, SessionWithUsers, UserRecord } from '../types'
 import { xrayCapture } from '../utils/logging'
 
 const dynamodb = xrayCapture(new DynamoDB({ apiVersion: '2012-08-10' }))
 
-/* Session */
+/* Session (Plan) */
 
-export const getSession = async (sessionId: string): Promise<VersionedSession> => {
+export const getSession = async (sessionId: string): Promise<SessionWithUsers> => {
   const command = new GetItemCommand({
-    Key: {
-      PK: { S: sessionId },
-      SK: { S: 'SESSION' },
-    },
+    Key: { PK: { S: sessionId }, SK: { S: 'SESSION' } },
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
   if (!response.Item?.Data?.S) {
     throw new NotFoundError('Session not found')
   }
-  const session: SessionRecord = JSON.parse(response.Item.Data.S)
-  const version = response.Item.version?.N ? parseInt(response.Item.version.N, 10) : 0
+  const session: PlanRecord = JSON.parse(response.Item.Data.S)
   const users = response.Item.users?.L?.map((item: { S: string }) => item.S) ?? []
-  return { session, users, version }
+  return { session, users }
 }
 
-export const putSession = async (sessionId: string, session: SessionRecord): Promise<void> => {
-  const command = new PutItemCommand({
-    Item: {
-      currentRound: { N: `${session.currentRound}` },
-      Data: { S: JSON.stringify(session) },
-      expiration: { N: `${session.expiration}` },
-      PK: { S: sessionId },
-      SK: { S: 'SESSION' },
-      version: { N: '0' },
-    },
-    TableName: dynamodbTableName,
-  })
-  await dynamodb.send(command)
-}
-
-export const putNewSession = async (sessionId: string, session: SessionRecord): Promise<void> => {
+export const putNewSession = async (sessionId: string, session: PlanRecord): Promise<void> => {
   const command = new PutItemCommand({
     ConditionExpression: 'attribute_not_exists(PK)',
     Item: {
-      currentRound: { N: `${session.currentRound}` },
       Data: { S: JSON.stringify(session) },
       expiration: { N: `${session.expiration}` },
       PK: { S: sessionId },
       SK: { S: 'SESSION' },
-      version: { N: '0' },
     },
     TableName: dynamodbTableName,
   })
@@ -74,70 +53,52 @@ export const putNewSession = async (sessionId: string, session: SessionRecord): 
   }
 }
 
-export const updateSession = async (
-  sessionId: string,
-  expectedVersion: number,
-  session: SessionRecord,
-): Promise<number> => {
-  const newVersion = expectedVersion + 1
-  const command = new UpdateItemCommand({
-    ConditionExpression: '#version = :expectedVersion',
-    ExpressionAttributeNames: {
-      '#currentRound': 'currentRound',
-      '#data': 'Data',
-      '#version': 'version',
-    },
-    ExpressionAttributeValues: {
-      ':data': { S: JSON.stringify(session) },
-      ':expectedVersion': { N: `${expectedVersion}` },
-      ':newRound': { N: `${session.currentRound}` },
-      ':newVersion': { N: `${newVersion}` },
-    },
-    Key: {
+/* Availability */
+
+export const getAvailability = async (sessionId: string, userId: string): Promise<AvailabilityRecord> => {
+  const command = new GetItemCommand({
+    Key: { PK: { S: sessionId }, SK: { S: `AVAIL#${userId}` } },
+    TableName: dynamodbTableName,
+  })
+  const response = await dynamodb.send(command)
+  if (!response.Item?.Data?.S) {
+    throw new NotFoundError('Availability not found')
+  }
+  return JSON.parse(response.Item.Data.S)
+}
+
+export const createAvailability = async (sessionId: string, availability: AvailabilityRecord): Promise<void> => {
+  const command = new PutItemCommand({
+    ConditionExpression: 'attribute_not_exists(PK)',
+    Item: {
+      Data: { S: JSON.stringify(availability) },
+      expiration: { N: `${availability.expiration}` },
       PK: { S: sessionId },
-      SK: { S: 'SESSION' },
+      SK: { S: `AVAIL#${availability.userId}` },
     },
     TableName: dynamodbTableName,
-    UpdateExpression: 'SET #data = :data, #currentRound = :newRound, #version = :newVersion',
   })
-
   try {
     await dynamodb.send(command)
-    return newVersion
   } catch (error) {
     if (error instanceof ConditionalCheckFailedException) {
-      throw new ConflictError('Session has been modified')
+      throw new ConflictError('Availability already exists for this user')
     }
     throw error
   }
 }
 
-/* Choices */
-
-export const getChoices = async (sessionId: string): Promise<ChoicesRecord> => {
-  const command = new GetItemCommand({
-    Key: {
-      PK: { S: sessionId },
-      SK: { S: 'CHOICES' },
-    },
+export const updateAvailability = async (
+  sessionId: string,
+  userId: string,
+  availability: AvailabilityRecord,
+): Promise<void> => {
+  const command = new UpdateItemCommand({
+    ExpressionAttributeNames: { '#data': 'Data' },
+    ExpressionAttributeValues: { ':data': { S: JSON.stringify(availability) } },
+    Key: { PK: { S: sessionId }, SK: { S: `AVAIL#${userId}` } },
     TableName: dynamodbTableName,
-  })
-  const response = await dynamodb.send(command)
-  if (!response.Item?.Data?.S) {
-    throw new NotFoundError('Choices not found')
-  }
-  return JSON.parse(response.Item.Data.S)
-}
-
-export const putChoices = async (sessionId: string, choices: ChoicesRecord): Promise<void> => {
-  const command = new PutItemCommand({
-    Item: {
-      Data: { S: JSON.stringify(choices) },
-      expiration: { N: `${choices.expiration}` },
-      PK: { S: sessionId },
-      SK: { S: 'CHOICES' },
-    },
-    TableName: dynamodbTableName,
+    UpdateExpression: 'SET #data = :data',
   })
   await dynamodb.send(command)
 }
@@ -172,7 +133,11 @@ export const getAllUsers = async (sessionId: string): Promise<UserRecord[]> => {
   return (response.Items ?? []).map((item: { Data: { S: string } }) => JSON.parse(item.Data.S))
 }
 
-export const createUser = async (sessionId: string, user: UserRecord): Promise<void> => {
+export const createUser = async (
+  sessionId: string,
+  user: UserRecord,
+  availability: AvailabilityRecord,
+): Promise<void> => {
   const command = new TransactWriteItemsCommand({
     TransactItems: [
       {
@@ -184,6 +149,18 @@ export const createUser = async (sessionId: string, user: UserRecord): Promise<v
             PK: { S: sessionId },
             SK: { S: `USER#${user.userId}` },
             textsSent: { N: `${user.textsSent}` },
+          },
+          TableName: dynamodbTableName,
+        },
+      },
+      {
+        Put: {
+          ConditionExpression: 'attribute_not_exists(PK)',
+          Item: {
+            Data: { S: JSON.stringify(availability) },
+            expiration: { N: `${availability.expiration}` },
+            PK: { S: sessionId },
+            SK: { S: `AVAIL#${availability.userId}` },
           },
           TableName: dynamodbTableName,
         },
@@ -261,18 +238,4 @@ export const incrementTextsSent = async (sessionId: string, userId: string, limi
     }
     throw error
   }
-}
-
-/* Query */
-
-export const querySession = async (sessionId: string): Promise<Record<string, any>[]> => {
-  const command = new QueryCommand({
-    ExpressionAttributeValues: {
-      ':pk': { S: sessionId },
-    },
-    KeyConditionExpression: 'PK = :pk',
-    TableName: dynamodbTableName,
-  })
-  const response = await dynamodb.send(command)
-  return (response.Items ?? []).map((item: { Data: { S: string } }) => JSON.parse(item.Data.S))
 }

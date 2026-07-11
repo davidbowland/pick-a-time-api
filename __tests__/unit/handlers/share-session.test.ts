@@ -109,11 +109,16 @@ describe('share-session', () => {
       expect(dynamodb.incrementTextsSent).toHaveBeenCalledWith(sessionId, 'fuzzy-penguin', expect.any(Number))
     })
 
-    it('should create user with recipient phone number', async () => {
+    it('should create user with recipient phone number and availability grid', async () => {
       await handler(event)
       expect(dynamodb.createUser).toHaveBeenCalledWith(
         sessionId,
         expect.objectContaining({ phone: '+15551234567', userId: 'brave-tiger' }),
+        expect.objectContaining({
+          userId: 'brave-tiger',
+          overrides: {},
+          template: expect.any(Array),
+        }),
       )
     })
 
@@ -121,7 +126,7 @@ describe('share-session', () => {
       await handler(event)
       expect(sms.sendSms).toHaveBeenCalledWith(
         '+15551234567',
-        `Help us decide where to eat! Tap here to vote: https://choosee.bowland.link/s/${sessionId}?id=brave-tiger`,
+        `Join the plan to add your hours: https://pick-a-time.bowland.link/s/${sessionId}?id=brave-tiger`,
       )
     })
 

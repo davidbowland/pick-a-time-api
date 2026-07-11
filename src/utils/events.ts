@@ -1,20 +1,17 @@
-import placeTypes from '../assets/place-types'
-import { radiusMaxMiles, radiusMinMiles } from '../config'
+import { maxPlanWeeks } from '../config'
 import { ValidationError } from '../errors'
 import {
   APIGatewayProxyEventV2,
-  CloseRoundInput,
-  LatLng,
-  NewSessionInput,
+  AvailabilityCell,
+  AvailabilityPatchInput,
+  NewPlanInput,
   PatchOperation,
-  RankByType,
   ShareInput,
-  SubscribeInput,
 } from '../types'
 
-const PHONE_REGEX = /^\+1[2-9]\d{9}$/
-const VOTES_PATH_REGEX = /^\/votes\/\d+\/\d+$/
-const ALLOWED_PATCH_OPS = ['replace', 'add', 'test']
+export const PHONE_REGEX = /^\+1[2-9]\d{9}$/
+const ALLOWED_PATCH_OPS = ['replace']
+const ALLOWED_PATCH_PATHS = ['/name', '/phone']
 
 const requireBody = (event: APIGatewayProxyEventV2): string => {
   const raw = event.isBase64Encoded && event.body ? Buffer.from(event.body, 'base64').toString('utf8') : event.body
@@ -26,96 +23,91 @@ const requireBody = (event: APIGatewayProxyEventV2): string => {
 
 const parseEventBody = (event: APIGatewayProxyEventV2): unknown => JSON.parse(requireBody(event))
 
-interface LatLngParams {
-  latitude: number
-  longitude: number
-}
+const MAX_NAME_LENGTH = 100
 
-export const formatLatLng = (latLng: LatLngParams): LatLng => {
-  const latitude = parseFloat(String(latLng.latitude))
-  const longitude = parseFloat(String(latLng.longitude))
-  if (isNaN(latitude) || isNaN(longitude)) {
-    throw new ValidationError('latitude and longitude query parameters must be provided')
-  } else if (latitude < -90 || latitude > 90) {
-    throw new ValidationError('latitude must be between -90 and 90')
-  } else if (longitude < -180 || longitude > 180) {
-    throw new ValidationError('longitude must be between -180 and 180')
+const isValidTimezone = (timezone: string): boolean => {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone })
+    return true
+  } catch {
+    return false
   }
-  return { latitude, longitude }
 }
 
-export const parseNewSessionBody = (event: APIGatewayProxyEventV2): NewSessionInput => {
+const isValidIsoDate = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+export const parseNewPlanBody = (event: APIGatewayProxyEventV2): NewPlanInput => {
   const body = parseEventBody(event) as Record<string, unknown>
-  const placeTypeValues = placeTypes.map((t) => t.value)
 
-  if (typeof body.address !== 'string' || body.address.trim().length === 0) {
-    throw new ValidationError('address is required')
-  }
-
-  if (!Array.isArray(body.type) || body.type.length === 0) {
-    throw new ValidationError('type must be a non-empty array of valid place types')
-  }
-  for (const t of body.type) {
-    if (!placeTypeValues.includes(t as string)) {
-      throw new ValidationError(`invalid place type: ${t}`)
-    }
-  }
-
-  const exclude: string[] = []
-  if (body.exclude !== undefined) {
-    if (!Array.isArray(body.exclude)) {
-      throw new ValidationError('exclude must be an array of valid place types')
-    }
-    for (const e of body.exclude) {
-      if (!placeTypeValues.includes(e as string)) {
-        throw new ValidationError(`invalid exclude place type: ${e}`)
-      }
-      exclude.push(e as string)
-    }
+  if (typeof body.name !== 'string' || body.name.trim().length === 0 || body.name.length > MAX_NAME_LENGTH) {
+    throw new ValidationError(`name is required and must be ${MAX_NAME_LENGTH} characters or fewer`)
   }
 
   if (
-    typeof body.radiusMiles !== 'number' ||
-    isNaN(body.radiusMiles) ||
-    body.radiusMiles < radiusMinMiles ||
-    body.radiusMiles > radiusMaxMiles
+    !Array.isArray(body.weekdays) ||
+    body.weekdays.length === 0 ||
+    body.weekdays.length > 7 ||
+    !body.weekdays.every((d: unknown) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6) ||
+    new Set(body.weekdays as number[]).size !== body.weekdays.length
   ) {
-    throw new ValidationError(`radiusMiles must be a number between ${radiusMinMiles} and ${radiusMaxMiles}`)
+    throw new ValidationError('weekdays must be a non-empty array of unique integers between 0 and 6')
+  }
+  const weekdays = body.weekdays as number[]
+
+  if (typeof body.startDate !== 'string' || !isValidIsoDate(body.startDate)) {
+    throw new ValidationError('startDate must be a valid ISO date string (YYYY-MM-DD)')
+  }
+  const [year, month, day] = body.startDate.split('-').map(Number)
+  const startDow = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  if (weekdays[0] !== startDow) {
+    throw new ValidationError('startDate must fall on the first day listed in weekdays')
   }
 
-  if (body.rankBy !== 'DISTANCE' && body.rankBy !== 'POPULARITY' && body.rankBy !== 'ALL') {
-    throw new ValidationError('rankBy must be ALL, DISTANCE, or POPULARITY')
+  if (
+    typeof body.weekCount !== 'number' ||
+    !Number.isInteger(body.weekCount) ||
+    body.weekCount < 1 ||
+    body.weekCount > maxPlanWeeks
+  ) {
+    throw new ValidationError(`weekCount must be an integer between 1 and ${maxPlanWeeks}`)
   }
 
-  const hasLat = body.latitude !== undefined
-  const hasLng = body.longitude !== undefined
-  if (hasLat !== hasLng) {
-    throw new ValidationError('latitude and longitude must both be present or both absent')
+  if (
+    typeof body.startHour !== 'number' ||
+    !Number.isInteger(body.startHour) ||
+    body.startHour < 0 ||
+    body.startHour > 23
+  ) {
+    throw new ValidationError('startHour must be an integer between 0 and 23')
   }
 
-  if (typeof body.filterClosingSoon !== 'boolean') {
-    throw new ValidationError('filterClosingSoon is required and must be a boolean')
+  if (
+    typeof body.endHour !== 'number' ||
+    !Number.isInteger(body.endHour) ||
+    body.endHour <= body.startHour ||
+    body.endHour > 24
+  ) {
+    throw new ValidationError('endHour must be an integer greater than startHour and at most 24')
   }
 
-  const result: NewSessionInput = {
-    address: body.address as string,
-    exclude,
-    filterClosingSoon: body.filterClosingSoon,
-    radiusMiles: body.radiusMiles as number,
-    rankBy: body.rankBy as RankByType,
-    type: body.type as string[],
+  if (typeof body.timezone !== 'string' || !isValidTimezone(body.timezone)) {
+    throw new ValidationError('timezone must be a valid IANA time zone name')
   }
 
-  if (hasLat) {
-    if (typeof body.latitude !== 'number' || typeof body.longitude !== 'number') {
-      throw new ValidationError('latitude and longitude must be numbers')
-    }
-    const validated = formatLatLng({ latitude: body.latitude as number, longitude: body.longitude as number })
-    result.latitude = validated.latitude
-    result.longitude = validated.longitude
+  return {
+    name: body.name.trim(),
+    weekdays,
+    startDate: body.startDate,
+    weekCount: body.weekCount,
+    startHour: body.startHour,
+    endHour: body.endHour,
+    timezone: body.timezone,
   }
-
-  return result
 }
 
 export const parseUserPatch = (event: APIGatewayProxyEventV2): PatchOperation[] => {
@@ -129,36 +121,28 @@ export const parseUserPatch = (event: APIGatewayProxyEventV2): PatchOperation[] 
     if (!ALLOWED_PATCH_OPS.includes(op.op)) {
       throw new ValidationError(`disallowed patch op: ${op.op}`)
     }
-
-    const path = op.path
-    if (path !== '/name' && path !== '/phone' && !VOTES_PATH_REGEX.test(path)) {
-      throw new ValidationError(`disallowed patch path: ${path}`)
+    if (!ALLOWED_PATCH_PATHS.includes(op.path)) {
+      throw new ValidationError(`disallowed patch path: ${op.path}`)
     }
-
-    if (path === '/name' && 'value' in op) {
-      const name = op.value as string
-      if (typeof name === 'string' && name.length > 50) {
+    if (op.path === '/name') {
+      if (!('value' in op) || typeof op.value !== 'string') {
+        throw new ValidationError('name must be a string')
+      }
+      if (op.value.length > 50) {
         throw new ValidationError('name must be 50 characters or fewer')
       }
     }
-
-    if (path === '/phone' && 'value' in op) {
-      const phone = op.value as string
-      if (typeof phone === 'string' && !PHONE_REGEX.test(phone)) {
+    if (op.path === '/phone') {
+      if (!('value' in op) || typeof op.value !== 'string') {
+        throw new ValidationError('phone must be a string')
+      }
+      if (!PHONE_REGEX.test(op.value)) {
         throw new ValidationError('phone must match format +1XXXXXXXXXX')
       }
     }
   }
 
   return ops
-}
-
-export const parseLatLng = (event: APIGatewayProxyEventV2): LatLng => {
-  const params = event.queryStringParameters ?? {}
-  return formatLatLng({
-    latitude: parseFloat(params.latitude as string),
-    longitude: parseFloat(params.longitude as string),
-  })
 }
 
 export const extractRecaptchaToken = (event: APIGatewayProxyEventV2): string => {
@@ -183,27 +167,42 @@ export const parseShareBody = (event: APIGatewayProxyEventV2): ShareInput => {
   return { phone: body.phone, type: 'text' }
 }
 
-export const parseSubscribeBody = (event: APIGatewayProxyEventV2): SubscribeInput => {
+export const parseAvailabilityPatch = (event: APIGatewayProxyEventV2): AvailabilityPatchInput => {
   const body = parseEventBody(event) as Record<string, unknown>
 
-  if (typeof body.userId !== 'string' || body.userId.trim().length === 0) {
-    throw new ValidationError('userId is required')
+  const weekIndex = body.weekIndex === undefined ? null : body.weekIndex
+  if (weekIndex !== null && (typeof weekIndex !== 'number' || !Number.isInteger(weekIndex) || weekIndex < 0)) {
+    throw new ValidationError('weekIndex must be a non-negative integer or null')
   }
 
-  if (typeof body.roundId !== 'number' || !Number.isInteger(body.roundId) || body.roundId < 0) {
-    throw new ValidationError('roundId must be a non-negative integer')
+  const resetToPattern = body.resetToPattern === true
+  if (resetToPattern && weekIndex === null) {
+    throw new ValidationError('resetToPattern requires a non-null weekIndex')
   }
 
-  return { roundId: body.roundId, userId: body.userId }
-}
+  if (body.cells !== undefined && !Array.isArray(body.cells)) {
+    throw new ValidationError('cells must be an array')
+  }
+  const rawCells = (body.cells ?? []) as unknown[]
+  const cells: AvailabilityCell[] = rawCells.map((cell) => {
+    const c = cell as Record<string, unknown>
+    if (
+      typeof c.hourIndex !== 'number' ||
+      !Number.isInteger(c.hourIndex) ||
+      c.hourIndex < 0 ||
+      typeof c.dayIndex !== 'number' ||
+      !Number.isInteger(c.dayIndex) ||
+      c.dayIndex < 0 ||
+      typeof c.value !== 'boolean'
+    ) {
+      throw new ValidationError('each cell must have a non-negative integer hourIndex/dayIndex and boolean value')
+    }
+    return { hourIndex: c.hourIndex, dayIndex: c.dayIndex, value: c.value }
+  })
 
-export const parseCloseRoundInput = (event: APIGatewayProxyEventV2): CloseRoundInput => {
-  const roundIdStr = event.pathParameters?.roundId
-  const roundId = Number(roundIdStr)
-
-  if (roundIdStr === undefined || isNaN(roundId) || !Number.isInteger(roundId) || roundId < 0) {
-    throw new ValidationError('roundId path parameter must be a non-negative integer')
+  if (cells.length === 0 && !resetToPattern) {
+    throw new ValidationError('cells must be non-empty unless resetToPattern is true')
   }
 
-  return { roundId }
+  return { weekIndex, cells, resetToPattern }
 }

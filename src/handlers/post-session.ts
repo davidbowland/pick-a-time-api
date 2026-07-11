@@ -1,59 +1,31 @@
-import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda'
-
-import { createSessionFunctionName, createSessionTimeoutMs, metersPerMile, sessionExpireHours } from '../config'
+import { sessionExpireHours } from '../config'
 import { ConflictError, ForbiddenError, ValidationError } from '../errors'
 import { putNewSession } from '../services/dynamodb'
 import { getCaptchaScore } from '../services/recaptcha'
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, NewSessionInput, SessionRecord } from '../types'
-import { extractRecaptchaToken, parseNewSessionBody } from '../utils/events'
+import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, NewPlanInput, PlanRecord } from '../types'
+import { extractRecaptchaToken, parseNewPlanBody } from '../utils/events'
 import { generateSessionId } from '../utils/id-generator'
-import { log, logError, xrayCapture } from '../utils/logging'
+import { log, logError } from '../utils/logging'
 import status from '../utils/status'
-
-const lambda = xrayCapture(new LambdaClient({}))
 
 const MAX_ID_RETRIES = 5
 
-const milesToMeters = (miles: number): number => Math.round(miles * metersPerMile)
-
-const buildSession = (
-  sessionId: string,
-  input: NewSessionInput,
-  expiration: number,
-  timeoutAt: number,
-): SessionRecord => ({
-  address: input.address,
-  bracket: [],
-  byes: [],
-  currentRound: 0,
-  errorMessage: null,
-  exclude: input.exclude,
+const buildPlan = (sessionId: string, input: NewPlanInput, expiration: number): PlanRecord => ({
+  endHour: input.endHour,
   expiration,
-  isReady: false,
-  location:
-    input.latitude !== undefined && input.longitude !== undefined
-      ? { latitude: input.latitude, longitude: input.longitude }
-      : null,
-  filterClosingSoon: input.filterClosingSoon === true,
-  radius: milesToMeters(input.radiusMiles),
-  rankBy: input.rankBy,
+  name: input.name,
   sessionId,
-  timeoutAt,
-  totalRounds: 0,
-  type: input.type,
-  votersSubmitted: 0,
-  winner: null,
+  startDate: input.startDate,
+  startHour: input.startHour,
+  timezone: input.timezone,
+  weekCount: input.weekCount,
+  weekdays: input.weekdays,
 })
 
-// Retry with a new ID on collision (adjective-noun can collide with active sessions)
-const createSessionWithUniqueId = async (
-  input: NewSessionInput,
-  expiration: number,
-  timeoutAt: number,
-): Promise<string> => {
+const createSessionWithUniqueId = async (input: NewPlanInput, expiration: number): Promise<string> => {
   for (let attempt = 0; attempt < MAX_ID_RETRIES; attempt++) {
     const sessionId = generateSessionId()
-    const session = buildSession(sessionId, input, expiration, timeoutAt)
+    const session = buildPlan(sessionId, input, expiration)
     try {
       await putNewSession(sessionId, session)
       return sessionId
@@ -70,12 +42,12 @@ const createSessionWithUniqueId = async (
 
 export const postSession = async (
   event: APIGatewayProxyEventV2,
-  nowMs = Date.now(),
+  nowMs = Date.now,
 ): Promise<APIGatewayProxyResultV2> => {
   log('Received event', { ...event, body: undefined })
   try {
     const recaptchaToken = extractRecaptchaToken(event)
-    const input = parseNewSessionBody(event)
+    const input = parseNewPlanBody(event)
 
     const score = await getCaptchaScore(recaptchaToken)
     log('reCAPTCHA result', { score })
@@ -83,28 +55,14 @@ export const postSession = async (
       throw new ForbiddenError('reCAPTCHA score too low')
     }
 
-    const expiration = Math.floor(nowMs / 1000) + sessionExpireHours * 3600
-    const timeoutAt = nowMs + createSessionTimeoutMs
-
-    const sessionId = await createSessionWithUniqueId(input, expiration, timeoutAt)
+    const expiration = Math.floor(nowMs() / 1000) + sessionExpireHours * 3600
+    const sessionId = await createSessionWithUniqueId(input, expiration)
     log('Session created', { sessionId })
 
-    const { radiusMiles: _, ...inputWithoutMiles } = input
-    const payload = JSON.stringify({ sessionId, ...inputWithoutMiles, radius: milesToMeters(input.radiusMiles) })
-    const invokeCommand = new InvokeCommand({
-      FunctionName: createSessionFunctionName,
-      InvocationType: 'Event',
-      Payload: new TextEncoder().encode(payload),
-    })
-    await lambda.send(invokeCommand)
-    log('Create session Lambda invoked', { sessionId })
-
-    return {
-      ...status.ACCEPTED,
-      body: JSON.stringify({ sessionId }),
-    }
+    return { ...status.CREATED, body: JSON.stringify({ sessionId }) }
   } catch (error) {
-    if (error instanceof ForbiddenError) return status.FORBIDDEN
+    if (error instanceof ForbiddenError)
+      return { ...status.FORBIDDEN, body: JSON.stringify({ message: error.message }) }
     if (error instanceof ValidationError)
       return { ...status.BAD_REQUEST, body: JSON.stringify({ message: error.message }) }
     logError(error)

@@ -1,0 +1,12 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "userId": "fuzzy-penguin"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/v1/sessions/abc123/users/fuzzy-penguin/availability"
+    }
+  }
+}

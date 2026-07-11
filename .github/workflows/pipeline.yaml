@@ -5,17 +5,17 @@ env:
   HUSKY: 0
   PIPELINE_USER_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   PIPELINE_USER_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  PROD_ARTIFACTS_BUCKET: choosee-lambda
-  PROD_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-cloudformation
-  PROD_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-pipeline
+  PROD_ARTIFACTS_BUCKET: pick-a-time-lambda
+  PROD_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pick-a-time-cloudformation
+  PROD_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pick-a-time-pipeline
   PROD_REGION: ${{ secrets.AWS_REGION }}
-  PROD_STACK_NAME: choosee-api
+  PROD_STACK_NAME: pick-a-time-api
   SAM_TEMPLATE: template.yaml
-  TESTING_ARTIFACTS_BUCKET: choosee-lambda-test
-  TESTING_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-cloudformation-test
-  TESTING_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-pipeline-test
+  TESTING_ARTIFACTS_BUCKET: pick-a-time-lambda-test
+  TESTING_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pick-a-time-cloudformation-test
+  TESTING_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pick-a-time-pipeline-test
   TESTING_REGION: ${{ secrets.AWS_REGION }}
-  TESTING_STACK_NAME: choosee-api-test
+  TESTING_STACK_NAME: pick-a-time-api-test
 
 on: push
 
@@ -77,8 +77,8 @@ jobs:
       - name: Deploy to feature stack in the testing account
         shell: bash
         run: |
-          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
-          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
           echo "::add-mask::${GOOGLE_CLIENT_ID}"
           echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
           sam deploy --stack-name ${TESTING_STACK_NAME} \
@@ -191,8 +191,8 @@ jobs:
 
       - name: Deploy to testing account
         run: |
-          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
-          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
           echo "::add-mask::${GOOGLE_CLIENT_ID}"
           echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
           sam deploy --stack-name ${TESTING_STACK_NAME} \
@@ -236,8 +236,8 @@ jobs:
 
       - name: Deploy to production account
         run: |
-          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
-          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time/google-client-id --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time/google-client-secret --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
           echo "::add-mask::${GOOGLE_CLIENT_ID}"
           echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
           sam deploy --stack-name ${PROD_STACK_NAME} \

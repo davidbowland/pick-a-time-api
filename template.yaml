@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  API for choosee project
+  API for pick-a-time project
 
 # NOTE: The `kms:Decrypt` IAM statements below reference this AWS account's
 # `aws/ssm`-managed KMS key ARN directly (arn:...:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879),
@@ -33,24 +33,26 @@ Parameters:
 Mappings:
   EnvironmentMap:
     prod:
-      certificateEdge: adce1a21-90b4-4120-8548-111215e582f0
-      certificateRegional: 5d4db894-c9fc-42ca-8f80-3c5da6c1678e
-      corsDomain: https://choosee.dbowland.com
-      domain: choosee-api.dbowland.com
-      domainInternal: choosee-api-internal.dbowland.com
+      certificateEdge: cdf7b531-7189-4a69-a82c-ea54ef16729e
+      certificateRegional: cdf7b531-7189-4a69-a82c-ea54ef16729e
+      corsDomain: https://pick-a-time.com
+      domain: api.pick-a-time.com
+      domainInternal: api-internal.pick-a-time.com
       logStreamFunction: log-subscriber
-      sessionsTable: choosee-api-sessions
+      maxPlanWeeks: '12'
+      sessionsTable: pick-a-time-api-sessions
       smsApiUrl: https://sms-queue-api.dbowland.com/v1
       ssmSmsApiKeyName: sms-queue-api-key
-      zoneId: Z072422417XWM8PIXXSFA
+      zoneId: Z09477181IUYK36D4AQQV
     test:
       certificateEdge: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
-      certificateRegional: 14a32175-0c26-4768-b71f-3fa611b8f5a2
-      corsDomain: https://choosee.bowland.link
-      domain: choosee-api.bowland.link
-      domainInternal: choosee-api-internal.bowland.link
+      certificateRegional: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
+      corsDomain: https://pick-a-time.bowland.link
+      domain: pick-a-time-api.bowland.link
+      domainInternal: pick-a-time-api-internal.bowland.link
       logStreamFunction: log-subscriber-test
-      sessionsTable: choosee-api-sessions-test
+      maxPlanWeeks: '12'
+      sessionsTable: pick-a-time-api-sessions-test
       smsApiUrl: https://sms-queue-api.bowland.link/v1
       ssmSmsApiKeyName: sms-queue-api-key-test
       zoneId: Z01312547RGU1BYKIJXY
@@ -62,8 +64,8 @@ Globals:
       - x86_64
     Tracing: Active
     Tags:
-      'created-by': 'choosee-api'
-      'created-for': 'choosee'
+      'created-by': 'pick-a-time-api'
+      'created-for': 'pick-a-time'
       'environment': !Ref Environment
     Environment:
       Variables:
@@ -80,7 +82,7 @@ Resources:
         ApiKeyRequired: true
         UsagePlan:
           CreateUsagePlan: PER_API
-          Description: Usage plan for choosee-api
+          Description: Usage plan for pick-a-time-api
       Domain:
         DomainName: !FindInMap [EnvironmentMap, !Ref Environment, domainInternal]
         CertificateArn: !Sub
@@ -154,30 +156,24 @@ Resources:
     Properties:
       Handler: src/handlers/post-session.handler
       MemorySize: 512
-      Description: choosee-api post session (unauthenticated)
+      Description: pick-a-time-api post session (unauthenticated)
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref SessionsTable
-        - LambdaInvokePolicy:
-            FunctionName: !Ref CreateSessionFunction
         - Statement:
             - Effect: Allow
               Action:
                 - ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/choosee/recaptcha-secret-key'
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/recaptcha-secret-key'
             - Effect: Allow
               Action:
                 - kms:Decrypt
               Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
       Environment:
         Variables:
-          CREATE_SESSION_FUNCTION_NAME: !Ref CreateSessionFunction
-          CREATE_SESSION_TIMEOUT_MS: '80000'
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          RADIUS_MIN_MILES: '1'
-          RADIUS_MAX_MILES: '30'
-          RADIUS_DEFAULT_MILES: '15'
+          MAX_PLAN_WEEKS: !FindInMap [EnvironmentMap, !Ref Environment, maxPlanWeeks]
           SESSION_EXPIRE_HOURS: '24'
       Events:
         ApiKey:
@@ -213,9 +209,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -233,30 +229,24 @@ Resources:
     Properties:
       Handler: src/handlers/post-session.handler
       MemorySize: 512
-      Description: choosee-api post session (authenticated)
+      Description: pick-a-time-api post session (authenticated)
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref SessionsTable
-        - LambdaInvokePolicy:
-            FunctionName: !Ref CreateSessionFunction
         - Statement:
             - Effect: Allow
               Action:
                 - ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/choosee/recaptcha-secret-key'
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/recaptcha-secret-key'
             - Effect: Allow
               Action:
                 - kms:Decrypt
               Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
       Environment:
         Variables:
-          CREATE_SESSION_FUNCTION_NAME: !Ref CreateSessionFunction
-          CREATE_SESSION_TIMEOUT_MS: '80000'
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          RADIUS_MIN_MILES: '1'
-          RADIUS_MAX_MILES: '30'
-          RADIUS_DEFAULT_MILES: '15'
+          MAX_PLAN_WEEKS: !FindInMap [EnvironmentMap, !Ref Environment, maxPlanWeeks]
           SESSION_EXPIRE_HOURS: '24'
       Events:
         ApiKey:
@@ -292,9 +282,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -307,69 +297,12 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PostSessionAuthedLogGroup
 
-  CreateSessionFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/create-session.handler
-      MemorySize: 2048
-      Description: choosee-api async session creation (Google Places lookup)
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
-            TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/google-places-api'
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          GOOGLE_IMAGE_COUNT: '5'
-          GOOGLE_IMAGE_MAX_HEIGHT: '300'
-          GOOGLE_IMAGE_MAX_WIDTH: '400'
-      Timeout: 90
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/create-session.ts
-
-  CreateSessionLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${CreateSessionFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'choosee-api'
-        - Key: 'created-for'
-          Value: 'choosee'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  CreateSessionLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref CreateSessionLogGroup
-
   GetSessionByIdFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: src/handlers/get-session-by-id.handler
       MemorySize: 1536
-      Description: choosee-api get session by ID
+      Description: pick-a-time-api get session by ID
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBReadPolicy:
@@ -411,9 +344,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -426,70 +359,6 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref GetSessionByIdLogGroup
 
-  ## Choices
-
-  GetChoicesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/get-choices.handler
-      MemorySize: 2048
-      Description: choosee-api get choices for session
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - DynamoDBReadPolicy:
-            TableName: !Ref SessionsTable
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref SessionsTable
-      Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/choices
-            Method: get
-            Auth:
-              ApiKeyRequired: true
-        Http:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /sessions/{sessionId}/choices
-            Method: get
-            Auth:
-              Authorizer: NONE
-      Timeout: 10
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/get-choices.ts
-
-  GetChoicesLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${GetChoicesFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'choosee-api'
-        - Key: 'created-for'
-          Value: 'choosee'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  GetChoicesLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref GetChoicesLogGroup
-
   ## Users
 
   GetUsersFunction:
@@ -497,7 +366,7 @@ Resources:
     Properties:
       Handler: src/handlers/get-users.handler
       MemorySize: 1536
-      Description: choosee-api get users for session
+      Description: pick-a-time-api get users for session
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBReadPolicy:
@@ -539,9 +408,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -559,7 +428,7 @@ Resources:
     Properties:
       Handler: src/handlers/post-user.handler
       MemorySize: 512
-      Description: choosee-api create user in session
+      Description: pick-a-time-api create user in session
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -602,9 +471,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -622,7 +491,7 @@ Resources:
     Properties:
       Handler: src/handlers/post-user.handler
       MemorySize: 512
-      Description: choosee-api create authenticated user in session
+      Description: pick-a-time-api create authenticated user in session
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -665,9 +534,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -685,7 +554,7 @@ Resources:
     Properties:
       Handler: src/handlers/patch-user.handler
       MemorySize: 1536
-      Description: choosee-api patch user (voting)
+      Description: pick-a-time-api patch user (voting)
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -741,9 +610,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -761,7 +630,7 @@ Resources:
     Properties:
       Handler: src/handlers/patch-user.handler
       MemorySize: 1536
-      Description: choosee-api patch user (authenticated)
+      Description: pick-a-time-api patch user (authenticated)
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -817,9 +686,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -832,53 +701,39 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PatchUserAuthLogGroup
 
-  ## Rounds
+  ## Availability
 
-  CloseRoundFunction:
+  GetAvailabilityFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/handlers/close-round.handler
+      Handler: src/handlers/get-availability.handler
       MemorySize: 1536
-      Description: choosee-api close round and advance bracket
+      Description: pick-a-time-api get user availability
       Policies:
         - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub
-                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParamName}'
-                - ParamName: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
       Environment:
         Variables:
-          CORS_DOMAIN: !FindInMap [EnvironmentMap, !Ref Environment, corsDomain]
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          SMS_API_KEY_PARAM_NAME: !FindInMap [EnvironmentMap, !Ref Environment, ssmSmsApiKeyName]
-          SMS_API_URL: !FindInMap [EnvironmentMap, !Ref Environment, smsApiUrl]
       Events:
         ApiKey:
           Type: Api
           Properties:
             RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/rounds/close
-            Method: post
+            Path: /sessions/{sessionId}/users/{userId}/availability
+            Method: get
             Auth:
               ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
-            Path: /sessions/{sessionId}/rounds/close
-            Method: post
+            Path: /sessions/{sessionId}/users/{userId}/availability
+            Method: get
             Auth:
               Authorizer: NONE
-      Timeout: 30
+      Timeout: 60
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -886,36 +741,36 @@ Resources:
         Target: 'es2024'
         Sourcemap: true
         EntryPoints:
-          - src/handlers/close-round.ts
+          - src/handlers/get-availability.ts
 
-  CloseRoundLogGroup:
+  GetAvailabilityLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${CloseRoundFunction}
+      LogGroupName: !Sub /aws/lambda/${GetAvailabilityFunction}
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
-  CloseRoundLogGroupSubscription:
+  GetAvailabilityLogGroupSubscription:
     Type: AWS::Logs::SubscriptionFilter
     Properties:
       DestinationArn: !Sub
         - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
         - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref CloseRoundLogGroup
+      LogGroupName: !Ref GetAvailabilityLogGroup
 
-  SubscribeRoundFunction:
+  PatchAvailabilityFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/handlers/subscribe-round.handler
-      MemorySize: 512
-      Description: choosee-api subscribe user to round notifications
+      Handler: src/handlers/patch-availability.handler
+      MemorySize: 1536
+      Description: pick-a-time-api patch user availability
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -928,19 +783,19 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/rounds/{roundId}/subscribe
-            Method: post
+            Path: /sessions/{sessionId}/users/{userId}/availability
+            Method: patch
             Auth:
               ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
-            Path: /sessions/{sessionId}/rounds/{roundId}/subscribe
-            Method: post
+            Path: /sessions/{sessionId}/users/{userId}/availability
+            Method: patch
             Auth:
               Authorizer: NONE
-      Timeout: 10
+      Timeout: 60
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -948,29 +803,29 @@ Resources:
         Target: 'es2024'
         Sourcemap: true
         EntryPoints:
-          - src/handlers/subscribe-round.ts
+          - src/handlers/patch-availability.ts
 
-  SubscribeRoundLogGroup:
+  PatchAvailabilityLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${SubscribeRoundFunction}
+      LogGroupName: !Sub /aws/lambda/${PatchAvailabilityFunction}
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
-  SubscribeRoundLogGroupSubscription:
+  PatchAvailabilityLogGroupSubscription:
     Type: AWS::Logs::SubscriptionFilter
     Properties:
       DestinationArn: !Sub
         - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
         - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref SubscribeRoundLogGroup
+      LogGroupName: !Ref PatchAvailabilityLogGroup
 
   ## Share / SMS
 
@@ -979,7 +834,7 @@ Resources:
     Properties:
       Handler: src/handlers/share-session.handler
       MemorySize: 1536
-      Description: choosee-api share session via SMS
+      Description: pick-a-time-api share session via SMS
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -1029,9 +884,9 @@ Resources:
       RetentionInDays: 30
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment
 
@@ -1044,217 +899,15 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref ShareSessionLogGroup
 
-  ## Reverse Geocode
-
-  GetReverseGeocodeFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/get-reverse-geocode.handler
-      MemorySize: 1024
-      Description: choosee-api reverse geocode (unauthenticated)
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/google-places-api'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/choosee/recaptcha-secret-key'
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
-      Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /reverse-geocode
-            Method: get
-            Auth:
-              ApiKeyRequired: true
-        Http:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /reverse-geocode
-            Method: get
-            Auth:
-              Authorizer: NONE
-      Timeout: 10
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/get-reverse-geocode.ts
-
-  GetReverseGeocodeLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${GetReverseGeocodeFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'choosee-api'
-        - Key: 'created-for'
-          Value: 'choosee'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  GetReverseGeocodeLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref GetReverseGeocodeLogGroup
-
-  GetReverseGeocodeAuthedFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/get-reverse-geocode.handler
-      MemorySize: 1024
-      Description: choosee-api reverse geocode (authenticated)
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/google-places-api'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/choosee/recaptcha-secret-key'
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
-      Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /reverse-geocode/authed
-            Method: get
-            Auth:
-              ApiKeyRequired: true
-        Http:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /reverse-geocode/authed
-            Method: get
-            Auth:
-              Authorizer: CognitoAuthorizer
-      Timeout: 10
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/get-reverse-geocode.ts
-
-  GetReverseGeocodeAuthedLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${GetReverseGeocodeAuthedFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'choosee-api'
-        - Key: 'created-for'
-          Value: 'choosee'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  GetReverseGeocodeAuthedLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref GetReverseGeocodeAuthedLogGroup
-
-  ## Places
-
-  GetSessionConfigFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/get-session-config.getSessionConfigHandler
-      MemorySize: 1024
-      Description: choosee-api session config
-      Policies:
-        - AWSLambdaBasicExecutionRole
-      Environment:
-        Variables:
-          RADIUS_MIN_MILES: '1'
-          RADIUS_MAX_MILES: '30'
-          RADIUS_DEFAULT_MILES: '15'
-      Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/config
-            Method: get
-            Auth:
-              ApiKeyRequired: true
-        Http:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /sessions/config
-            Method: get
-            Auth:
-              Authorizer: NONE
-      Timeout: 10
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: 'es2024'
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/get-session-config.ts
-
-  GetSessionConfigLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${GetSessionConfigFunction}
-      RetentionInDays: 30
-      Tags:
-        - Key: 'created-by'
-          Value: 'choosee-api'
-        - Key: 'created-for'
-          Value: 'choosee'
-        - Key: 'environment'
-          Value: !Ref Environment
-
-  GetSessionConfigLogGroupSubscription:
-    Type: AWS::Logs::SubscriptionFilter
-    Properties:
-      DestinationArn: !Sub
-        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
-        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
-      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
-      LogGroupName: !Ref GetSessionConfigLogGroup
-
   # Cognito — Google-only authentication
 
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub 'choosee-${Environment}'
+      UserPoolName: !Sub 'pick-a-time-${Environment}'
       UserPoolTags:
-        'created-by': 'choosee-api'
-        'created-for': 'choosee'
+        'created-by': 'pick-a-time-api'
+        'created-for': 'pick-a-time'
         'environment': !Ref Environment
 
   GoogleIdentityProvider:
@@ -1276,7 +929,7 @@ Resources:
     DependsOn: GoogleIdentityProvider
     Properties:
       UserPoolId: !Ref UserPool
-      ClientName: !Sub 'choosee-${Environment}'
+      ClientName: !Sub 'pick-a-time-${Environment}'
       SupportedIdentityProviders:
         - Google
       AllowedOAuthFlows:
@@ -1299,7 +952,7 @@ Resources:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       UserPoolId: !Ref UserPool
-      Domain: !Sub 'choosee-auth-${Environment}'
+      Domain: !Sub 'pick-a-time-auth-${Environment}'
 
   # DynamoDB — Single-table design
 
@@ -1323,8 +976,8 @@ Resources:
       TableName: !FindInMap [EnvironmentMap, !Ref Environment, sessionsTable]
       Tags:
         - Key: 'created-by'
-          Value: 'choosee-api'
+          Value: 'pick-a-time-api'
         - Key: 'created-for'
-          Value: 'choosee'
+          Value: 'pick-a-time'
         - Key: 'environment'
           Value: !Ref Environment

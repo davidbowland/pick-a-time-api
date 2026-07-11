@@ -29,7 +29,19 @@ describe('get-users', () => {
       const result = await handler(event)
       expect(result).toEqual(expect.objectContaining(status.OK))
       const body = JSON.parse((result as { body: string }).body)
-      expect(body).toEqual([userRecord])
+      const { googleSub: _, ...responseUser } = userRecord
+      expect(body).toEqual([responseUser])
+    })
+
+    it('should return users without googleSub, votes, or subscribedRounds fields', async () => {
+      jest.mocked(dynamodb).getAllUsers.mockResolvedValueOnce([userRecord])
+      const result = await handler(event)
+      const body = JSON.parse((result as { body: string }).body)
+      const { googleSub: _, ...responseUser } = userRecord
+      expect(body[0]).toEqual(responseUser)
+      expect(body[0].googleSub).toBeUndefined()
+      expect(body[0].votes).toBeUndefined()
+      expect(body[0].subscribedRounds).toBeUndefined()
     })
 
     it('should return NOT_FOUND when session does not exist', async () => {

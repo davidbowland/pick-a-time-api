@@ -4,5 +4,6 @@ dist/
 coverage/
 infrastructure/
 node_modules/
+docs/
 *.min.*
 package-lock.json

@@ -1,6 +1,6 @@
-# Lambdas for Choosee API
+# Lambdas for Pick a Time API
 
-Lambdas for Choosee API, which handles sessions as a back-end for choosee-ui.
+Lambdas for Pick a Time API, which handles sessions as a back-end for pick-a-time-ui.
 
 ## Setup
 
@@ -25,7 +25,7 @@ If file `~/.aws/credentials` does not exist, create it and add a default profile
 [default]
 aws_access_key_id=<YOUR_ACCESS_KEY_ID>
 aws_secret_access_key=<YOUR_SECRET_ACCESS_KEY>
-region=us-east-2
+region=us-east-1
 ```
 
 If necessary, generate a [new access key ID and secret access key](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys).
@@ -37,7 +37,7 @@ Add a `developer` profile to the same credentials file:
 role_arn=arn:aws:iam::<account number>:role/developer
 source_profile=default
 mfa_serial=<YOUR_MFA_ARN>
-region=us-east-2
+region=us-east-1
 ```
 
 If necessary, retrieve the ARN of the primary MFA device attached to the default profile:

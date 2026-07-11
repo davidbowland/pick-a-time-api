@@ -1,7 +1,7 @@
 {
-  "name": "choosee-api",
+  "name": "pick-a-time-api",
   "version": "1.13.0",
-  "description": "Lambda choosee API",
+  "description": "Lambda Pick a Time API",
   "author": "David Bowland",
   "engines": {
     "node": "^24.0.0"
@@ -9,12 +9,12 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/davidbowland/choosee-api.git"
+    "url": "git+https://github.com/davidbowland/pick-a-time-api.git"
   },
   "bugs": {
-    "url": "https://github.com/davidbowland/choosee-api/issues"
+    "url": "https://github.com/davidbowland/pick-a-time-api/issues"
   },
-  "homepage": "https://github.com/davidbowland/choosee-api#readme",
+  "homepage": "https://github.com/davidbowland/pick-a-time-api#readme",
   "scripts": {
     "clean": "rm -rf .aws-sam coverage && NODE_ENV=test npm ci",
     "deploy": "NODE_ENV=production npm ci && ./scripts/deploy.sh",
@@ -36,7 +36,6 @@
     "axios": "^1.18.1",
     "axios-retry": "^4.5.0",
     "esbuild": "^0.28.1",
-    "fast-json-patch": "^3.1.1",
     "husky": "^9.1.7",
     "jsonwebtoken": "^9.0.3"
   },
