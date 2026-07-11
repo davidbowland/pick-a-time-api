@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-recaptcha-token": "ytrewsdfghjmnbgtyu"
+  },
+  "queryStringParameters": {
+    "latitude": "38.897957",
+    "longitude": "-77.036560"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/v1/reverse-geocode"
+    }
+  }
+}

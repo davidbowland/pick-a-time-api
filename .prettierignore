@@ -1,0 +1,8 @@
+__snapshots__/
+.aws-sam/
+dist/
+coverage/
+infrastructure/
+node_modules/
+*.min.*
+package-lock.json

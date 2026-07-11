@@ -1,0 +1,12 @@
+{
+  "body": "{\"address\":\"Columbia, MO 65203, USA\",\"exclude\":[\"breakfast_restaurant\"],\"radiusMiles\":2.33,\"rankBy\":\"POPULARITY\",\"type\":[\"restaurant\"],\"voterCount\":2}",
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/v1/sessions"
+    }
+  },
+  "headers": {
+    "x-recaptcha-token": "ytrewsdfghjmnbgtyu"
+  }
+}

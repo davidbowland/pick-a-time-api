@@ -1,0 +1,11 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/v1/sessions/abc123/users"
+    }
+  }
+}

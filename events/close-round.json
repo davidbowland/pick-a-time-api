@@ -1,0 +1,12 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "roundId": "0"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/v1/sessions/abc123/rounds/0/close"
+    }
+  }
+}

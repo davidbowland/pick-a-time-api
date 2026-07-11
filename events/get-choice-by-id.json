@@ -1,0 +1,11 @@
+{
+  "pathParameters": {
+    "choiceId": "abc123"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/v1/choices/abc123"
+    }
+  }
+}

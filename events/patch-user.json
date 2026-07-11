@@ -1,0 +1,13 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "userId": "fuzzy-penguin"
+  },
+  "body": "[{\"op\":\"replace\",\"path\":\"/name\",\"value\":\"Alice\"}]",
+  "requestContext": {
+    "http": {
+      "method": "PATCH",
+      "path": "/v1/sessions/abc123/users/fuzzy-penguin"
+    }
+  }
+}

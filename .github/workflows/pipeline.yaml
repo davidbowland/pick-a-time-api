@@ -1,0 +1,271 @@
+name: Pipeline
+
+env:
+  GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
+  HUSKY: 0
+  PIPELINE_USER_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  PIPELINE_USER_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  PROD_ARTIFACTS_BUCKET: choosee-lambda
+  PROD_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-cloudformation
+  PROD_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-pipeline
+  PROD_REGION: ${{ secrets.AWS_REGION }}
+  PROD_STACK_NAME: choosee-api
+  SAM_TEMPLATE: template.yaml
+  TESTING_ARTIFACTS_BUCKET: choosee-lambda-test
+  TESTING_CLOUDFORMATION_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-cloudformation-test
+  TESTING_PIPELINE_EXECUTION_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/choosee-pipeline-test
+  TESTING_REGION: ${{ secrets.AWS_REGION }}
+  TESTING_STACK_NAME: choosee-api-test
+
+on: push
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Run unit tests
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - name: Install and audit packages
+        run: npm ci && npm audit --audit-level=high
+        env:
+          NODE_ENV: test
+      - name: Run tests
+        run: npm run test
+
+  build-and-deploy-feature:
+    name: Deploy feature branch
+    if: github.ref != 'refs/heads/master'
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install AWS SAM
+        uses: aws-actions/setup-sam@v2
+
+      - name: Install Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - name: Build TypeScript into Lambda
+        run: sam build --template ${SAM_TEMPLATE} --use-container --container-env-var NODE_ENV=production
+
+      - name: Assume the testing pipeline user role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.TESTING_REGION }}
+          role-to-assume: ${{ env.TESTING_PIPELINE_EXECUTION_ROLE }}
+          role-session-name: feature-deployment
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Deploy to feature stack in the testing account
+        shell: bash
+        run: |
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          echo "::add-mask::${GOOGLE_CLIENT_ID}"
+          echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
+          sam deploy --stack-name ${TESTING_STACK_NAME} \
+            --capabilities CAPABILITY_IAM \
+            --region ${TESTING_REGION} \
+            --s3-bucket ${TESTING_ARTIFACTS_BUCKET} \
+            --s3-prefix ${TESTING_STACK_NAME} \
+            --no-fail-on-empty-changeset \
+            --role-arn ${TESTING_CLOUDFORMATION_EXECUTION_ROLE} \
+            --parameter-overrides "Environment=test" "GoogleClientId=${GOOGLE_CLIENT_ID}" "GoogleClientSecret=${GOOGLE_CLIENT_SECRET}"
+
+  build-and-package:
+    name: Build and package lambda
+    if: github.ref == 'refs/heads/master'
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install AWS SAM
+        uses: aws-actions/setup-sam@v2
+
+      - name: Install Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - name: Build resources
+        run: sam build --template ${SAM_TEMPLATE} --use-container --container-env-var NODE_ENV=production
+
+      - name: Assume the testing pipeline user role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.TESTING_REGION }}
+          role-to-assume: ${{ env.TESTING_PIPELINE_EXECUTION_ROLE }}
+          role-session-name: testing-packaging
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Upload artifacts to testing artifact buckets
+        run: |
+          sam package \
+            --s3-bucket ${TESTING_ARTIFACTS_BUCKET} \
+            --s3-prefix ${TESTING_STACK_NAME} \
+            --region ${TESTING_REGION} \
+            --output-template-file packaged-testing.yaml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packaged-testing.yaml
+          path: packaged-testing.yaml
+
+      - name: Assume the prod pipeline user role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.PROD_REGION }}
+          role-to-assume: ${{ env.PROD_PIPELINE_EXECUTION_ROLE }}
+          role-session-name: prod-packaging
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Upload artifacts to production artifact buckets
+        run: |
+          sam package \
+            --s3-bucket ${PROD_ARTIFACTS_BUCKET} \
+            --s3-prefix ${PROD_STACK_NAME} \
+            --region ${PROD_REGION} \
+            --output-template-file packaged-prod.yaml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packaged-prod.yaml
+          path: packaged-prod.yaml
+
+  deploy-testing:
+    name: Deploy to test
+    if: github.ref == 'refs/heads/master'
+    needs: [build-and-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install AWS SAM
+        uses: aws-actions/setup-sam@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: packaged-testing.yaml
+
+      - name: Assume the testing pipeline user role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.TESTING_REGION }}
+          role-to-assume: ${{ env.TESTING_PIPELINE_EXECUTION_ROLE }}
+          role-session-name: testing-deployment
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Deploy to testing account
+        run: |
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          echo "::add-mask::${GOOGLE_CLIENT_ID}"
+          echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
+          sam deploy --stack-name ${TESTING_STACK_NAME} \
+            --template packaged-testing.yaml \
+            --capabilities CAPABILITY_IAM \
+            --region ${TESTING_REGION} \
+            --s3-bucket ${TESTING_ARTIFACTS_BUCKET} \
+            --s3-prefix ${TESTING_STACK_NAME} \
+            --no-fail-on-empty-changeset \
+            --role-arn ${TESTING_CLOUDFORMATION_EXECUTION_ROLE} \
+            --parameter-overrides "Environment=test" "GoogleClientId=${GOOGLE_CLIENT_ID}" "GoogleClientSecret=${GOOGLE_CLIENT_SECRET}"
+
+  deploy-prod:
+    name: Deploy to production
+    if: github.ref == 'refs/heads/master'
+    needs: [deploy-testing]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install AWS SAM
+        uses: aws-actions/setup-sam@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: packaged-prod.yaml
+
+      - name: Assume the prod pipeline user role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ env.PIPELINE_USER_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.PIPELINE_USER_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.PROD_REGION }}
+          role-to-assume: ${{ env.PROD_PIPELINE_EXECUTION_ROLE }}
+          role-session-name: prod-deployment
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Deploy to production account
+        run: |
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /choosee/google-client-id --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /choosee/google-client-secret --with-decryption --region ${PROD_REGION} --query Parameter.Value --output text)
+          echo "::add-mask::${GOOGLE_CLIENT_ID}"
+          echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
+          sam deploy --stack-name ${PROD_STACK_NAME} \
+            --template packaged-prod.yaml \
+            --capabilities CAPABILITY_IAM \
+            --region ${PROD_REGION} \
+            --s3-bucket ${PROD_ARTIFACTS_BUCKET} \
+            --s3-prefix ${PROD_STACK_NAME} \
+            --no-fail-on-empty-changeset \
+            --role-arn ${PROD_CLOUDFORMATION_EXECUTION_ROLE} \
+            --parameter-overrides "GoogleClientId=${GOOGLE_CLIENT_ID}" "GoogleClientSecret=${GOOGLE_CLIENT_SECRET}"
+
+  bump:
+    name: Bump the version number and tag the commit
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+      - name: Install Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      - name: Set git name and email
+        run: |
+          git config --local user.email "${GIT_EMAIL}"
+          git config --local user.name "github-actions[bot]"
+      - name: Bump the minor version
+        run: npm version minor
+      - name: Push tag created by version bump
+        run: git push --follow-tags

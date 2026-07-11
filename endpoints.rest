@@ -1,0 +1,298 @@
+### Get session config
+# Returns everything the FE needs to render the "create session" form:
+# place types, sort options, and radius constraints (in miles).
+# Called once when the create-session page loads.
+
+GET https://{{choosee-api-host}}/v1/sessions/config HTTP/1.1
+
+# Response 200:
+# {
+#   "placeTypes": [
+#     { "value": "restaurant", "display": "Any restaurant", "defaultType": true, "canBeExcluded": false, "mustBeSingleType": true },
+#     { "value": "acai_shop", "display": "Acai shop" },
+#     { "value": "fast_food_restaurant", "display": "Fast food", "defaultExclude": true },#     ...
+#   ],
+#   "sortOptions": [
+#     { "value": "POPULARITY", "label": "Most popular", "description": "Highest rated first", "maxChoices": 20 },
+#     { "value": "DISTANCE", "label": "Closest", "description": "Nearest to you", "maxChoices": 20 },
+#     { "value": "ALL", "label": "Both", "description": "Popular & nearby", "maxChoices": 40 }
+#   ],
+#   "radius": { "defaultMiles": 15, "minMiles": 1, "maxMiles": 30 }
+# }
+
+###
+
+### Get reverse geocode
+# Converts lat/lng coordinates to a street address.
+# Requires reCAPTCHA token for unauthenticated access.
+# Authenticated variant: GET /v1/reverse-geocode/authed (Cognito JWT, no reCAPTCHA required)
+
+GET https://{{choosee-api-host}}/v1/reverse-geocode?latitude=38.897957&longitude=-77.03656 HTTP/1.1
+x-recaptcha-token: {{choosee-api-recaptcha-token}}
+
+# Response 200:
+# { "address": "1600 Pennsylvania Avenue NW, Washington, DC 20500, USA" }
+#
+# Response 400: missing/invalid latitude or longitude
+# Response 403: reCAPTCHA score too low
+# Response 404: no address found for the given coordinates
+
+###
+
+### Create session
+# Starts a new restaurant-picking session. Returns immediately with a sessionId;
+# the actual Google Places lookup runs asynchronously in a separate Lambda.
+# Poll GET /sessions/{sessionId} until isReady=true or errorMessage is set.
+#
+# radiusMiles: search radius in miles (min/max from GET /sessions/config)
+# rankBy: "POPULARITY" | "DISTANCE" | "ALL" (from GET /sessions/config sortOptions)
+# type: array of place type values (from GET /sessions/config placeTypes)
+# exclude: optional array of place type values to exclude
+# filterClosingSoon: required boolean. When true, filters out restaurants that are
+#   closed or closing within the next hour. Best-effort: places without structured
+#   hours data are kept if Google reports them as open.
+# maxChoices: optional integer. Caps the number of restaurants in the bracket.
+#   For rankBy "ALL", results are interleaved (alternating popularity/distance)
+#   before the cap is applied, so the extra slot goes to a randomly chosen list.
+#   Omit to include all results returned by Google (up to 20).
+# latitude/longitude: optional — both or neither. If omitted, address is geocoded.
+#
+# Authenticated variant: POST /v1/sessions/authed (Cognito JWT)
+
+POST https://{{choosee-api-host}}/v1/sessions HTTP/1.1
+content-type: application/json
+x-recaptcha-token: {{choosee-api-recaptcha-token}}
+
+{
+  "address": "Columbia, MO 65203, USA",
+  "type": ["restaurant"],
+  "exclude": ["breakfast_restaurant"],
+  "radiusMiles": 2.33,
+  "rankBy": "POPULARITY",
+  "filterClosingSoon": true,
+  "maxChoices": 8
+}
+
+# Response 202:
+# { "sessionId": "fuzzy-penguin" }
+#
+# Response 400: missing address, empty type array, invalid radiusMiles/rankBy,
+#   missing or non-boolean filterClosingSoon
+# Response 403: reCAPTCHA score too low
+
+###
+
+### Get session by ID
+# Returns the current state of a session. Poll this after creating a session
+# until isReady=true (success) or errorMessage is non-null (failure).
+
+GET https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin HTTP/1.1
+
+# Response 200:
+# {
+#   "sessionId": "fuzzy-penguin",
+#   "address": "Columbia, MO 65203, USA",
+#   "location": { "latitude": 38.9517, "longitude": -92.3341 },
+#   "currentRound": 0,
+#   "bracket": [[["choice-a", "choice-b"], ["choice-c", "choice-d"]]],
+#   "byes": [null],
+#   "isReady": true,
+#   "errorMessage": null,
+#   "users": ["brave-tiger"],
+#   "winner": null,
+#   "expiration": 1712448000,
+#   "type": ["restaurant"],
+#   "exclude": ["breakfast_restaurant"],
+#   "radius": 3750,
+#   "rankBy": "POPULARITY",
+#   "filterClosingSoon": true,
+#   "totalRounds": 2
+# }
+#
+# Note: radius is stored in meters internally.
+# While session is loading (isReady=false), response also includes:
+#   "timeoutAt": 1712361600000  (ms timestamp — omitted once session is ready)
+# totalRounds is 0 until the async Lambda sets it.
+#
+# Response 404: session not found or expired
+
+###
+
+### Get choices for session
+# Returns all restaurant choices discovered by the async Google Places lookup.
+# Only available after the session is ready (isReady=true).
+
+GET https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/choices HTTP/1.1
+
+# Response 200:
+# {
+#   "choice-a": {
+#     "choiceId": "choice-a",
+#     "name": "Joe's Pizza",
+#     "formattedAddress": "123 Main St, Columbia, MO 65203",
+#     "formattedPhoneNumber": "(573) 555-1234",
+#     "internationalPhoneNumber": "+15735551234",
+#     "priceLevel": "PRICE_LEVEL_MODERATE",
+#     "rating": 4.5,
+#     "ratingsTotal": 200,
+#     "distanceMiles": 1.2,
+#     "photos": ["https://maps.googleapis.com/..."],
+#     "openHours": ["Monday: 11:00 AM – 10:00 PM"],
+#     "openNow": true,
+#     "isClosingSoon": false,
+#     "types": ["Pizza", "Italian"],
+#     "website": "https://joespizza.example.com"
+#   },
+#   "choice-b": { ... }
+# }
+#
+# openNow: present when Google provided a value; true = open now, false = closed.
+# isClosingSoon: true when the restaurant is currently open but closes within the next hour.
+#   Computed at session-creation time. Always false when filterClosingSoon=true (those
+#   places were already removed). Always false when openNow is false or unknown.
+#
+# Response 404: session not found
+
+###
+
+### Get users for session
+
+GET https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users HTTP/1.1
+
+# Response 200:
+# [
+#   {
+#     "userId": "brave-tiger",
+#     "name": "Alice",
+#     "phone": "+15551234567",
+#     "subscribedRounds": [1],
+#     "votes": [["choice-a", null]],
+#     "textsSent": 0,
+#     "expiration": 1712448000
+#   }
+# ]
+#
+# Response 404: session not found or expired
+
+###
+
+### Create user (join session)
+# No request body required. Creates a new user in the session.
+# If a Cognito JWT is present (via the /auth variant), the user's name, phone,
+# and Google sub are extracted from the token claims.
+
+POST https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users HTTP/1.1
+
+# Authenticated variant (requires Cognito JWT):
+# POST https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users/authed
+#
+# Response 201:
+# {
+#   "userId": "brave-tiger",
+#   "name": "Alice",          (from JWT name claim, or null if unauthed)
+#   "phone": "+15551234567",   (from JWT phone_number claim if valid US number, or null)
+#   "subscribedRounds": [],
+#   "votes": [[]],
+#   "textsSent": 0,
+#   "expiration": 1712448000
+# }
+#
+# Response 400: max users reached (message includes limit)
+# Response 404: session not found or expired
+
+###
+
+### Update user (name, phone, or vote)
+# JSON Patch format. Allowed ops: replace, add, test.
+# Allowed paths: /name, /phone, /votes/{round}/{matchupIndex}
+#
+# If all users have voted all matchups, the round closes automatically.
+# If a Cognito JWT is present (via the /auth variant), the user's name and
+# Google sub are backfilled from the token when still null.
+#
+# Authenticated variant (requires Cognito JWT):
+# PATCH https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users/brave-tiger/authed
+
+PATCH https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users/brave-tiger HTTP/1.1
+content-type: application/json
+
+[
+  { "op": "replace", "path": "/name", "value": "Alice" }
+]
+
+# Example: set phone
+# [{ "op": "replace", "path": "/phone", "value": "+15551234567" }]
+#
+# Example: submit vote for round 0, matchup 0
+# [{ "op": "replace", "path": "/votes/0/0", "value": "choice-a" }]
+#
+# Response 200: updated user object
+# Response 400: disallowed path, name > 50 chars, invalid phone, vote choice not in matchup
+# Response 404: session or user not found
+# Response 409: concurrent round advance conflict
+
+###
+
+### Close round
+# Advances the bracket to the next round or determines a winner.
+# roundId is a path parameter.
+
+POST https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/rounds/0/close HTTP/1.1
+
+# Response 200 (new round generated):
+# { "sessionId": "fuzzy-penguin", "currentRound": 1, "bracket": [...], "winner": null, ... }
+#
+# Response 200 (winner determined):
+# { "sessionId": "fuzzy-penguin", "currentRound": 1, "winner": "choice-a", ... }
+#
+# Response 200 (idempotent — roundId < currentRound): returns current session state
+#
+# Response 400: roundId does not match currentRound, session not ready
+# Response 404: session not found or expired
+# Response 409: concurrent round close (condition expression failure)
+
+###
+
+### Subscribe to round notifications
+# Subscribes a user to receive an SMS when a new round starts.
+# User must have a phone number set first.
+
+POST https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/rounds/1/subscribe HTTP/1.1
+content-type: application/json
+
+{
+  "userId": "brave-tiger",
+  "roundId": 1
+}
+
+# Response 200: updated user object (subscribedRounds includes the new round)
+#
+# Response 400: user has no phone number set, invalid roundId
+# Response 404: session or user not found
+
+###
+
+### Share session via SMS
+# Creates a new user with the recipient's phone and sends an SMS with a join link.
+# Requires Cognito JWT. The caller's Google sub must match the sharing user's sub.
+# Path includes the sharing user's ID for rate-limit tracking and ownership verification.
+
+POST https://{{choosee-api-host}}/v1/sessions/fuzzy-penguin/users/brave-tiger/share HTTP/1.1
+content-type: application/json
+Authorization: Bearer {{cognito-jwt}}
+
+{
+  "phone": "+15559876543",
+  "type": "text"
+}
+
+# Response 201:
+# { "userId": "clever-fox" }
+#
+# Response 400: invalid phone format, max users reached
+# Response 401: missing or invalid JWT
+# Response 403: caller's Google sub doesn't match sharing user, or user not linked
+# Response 404: session not found, sharing user not found, or expired
+# Response 422: phone number already in use in this session
+# Response 429: SMS rate limit exceeded (5 texts per user)
+# Response 500: SMS send failed (userId of created user included in error body)
