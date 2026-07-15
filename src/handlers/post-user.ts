@@ -1,7 +1,7 @@
 import { maxUsersPerSession } from '../config'
 import { MaxUsersError, NotFoundError } from '../errors'
 import { createUser, getSession } from '../services/dynamodb'
-import { emptyGrid } from '../services/occurrences'
+import { buildSlots, emptyGrid } from '../services/slots'
 import { AvailabilityRecord, APIGatewayProxyEventV2, APIGatewayProxyResultV2, UserRecord } from '../types'
 import { extractAuthContext } from '../utils/auth'
 import { generateUserId } from '../utils/id-generator'
@@ -33,8 +33,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
     const availability: AvailabilityRecord = {
       expiration: session.expiration,
-      overrides: {},
-      template: emptyGrid(session.endHour - session.startHour, session.weekdays.length),
+      free: emptyGrid(session.dates.length, buildSlots(session).length),
       userId,
     }
 

@@ -1,14 +1,26 @@
 import { ConditionalCheckFailedException, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
 import { ConflictError, NotFoundError } from '@errors'
 
-import { availabilityRecord, session, sessionId, userId, userRecord } from '../__mocks__'
+import {
+  availabilityRecord,
+  calendarAccountRecord,
+  googleSub,
+  session,
+  sessionId,
+  userId,
+  userRecord,
+} from '../__mocks__'
 import {
   createAvailability,
   createUser,
+  deleteCalendarAccount,
+  getAllAvailability,
   getAllUsers,
   getAvailability,
+  getCalendarAccount,
   getSession,
   getUser,
+  putCalendarAccount,
   putNewSession,
   updateAvailability,
   updateUser,
@@ -19,6 +31,7 @@ jest.mock('@aws-sdk/client-dynamodb', () => ({
   ConditionalCheckFailedException: class ConditionalCheckFailedException extends Error {
     name = 'ConditionalCheckFailedException'
   },
+  DeleteItemCommand: jest.fn().mockImplementation((x) => x),
   DynamoDB: jest.fn(() => ({
     send: (...args: any[]) => mockSend(...args),
   })),
@@ -146,6 +159,36 @@ describe('dynamodb', () => {
           ExpressionAttributeValues: { ':data': { S: JSON.stringify(availabilityRecord) } },
         }),
       )
+    })
+  })
+
+  describe('getAllAvailability', () => {
+    it('should query all AVAIL records with begins_with on SK', async () => {
+      mockSend.mockResolvedValueOnce({
+        Items: [{ Data: { S: JSON.stringify(availabilityRecord) } }],
+      })
+
+      const result = await getAllAvailability(sessionId)
+
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ExpressionAttributeValues: {
+            ':pk': { S: sessionId },
+            ':skPrefix': { S: 'AVAIL#' },
+          },
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+          TableName: 'pick-a-time-table',
+        }),
+      )
+      expect(result).toEqual([availabilityRecord])
+    })
+
+    it('should return empty array when no availability records exist', async () => {
+      mockSend.mockResolvedValueOnce({ Items: [] })
+
+      const result = await getAllAvailability(sessionId)
+
+      expect(result).toEqual([])
     })
   })
 
@@ -291,6 +334,50 @@ describe('dynamodb', () => {
           TableName: 'pick-a-time-table',
           UpdateExpression: 'SET #data = :data',
         }),
+      )
+    })
+  })
+
+  describe('getCalendarAccount', () => {
+    it('should fetch the CALENDAR record for a googleSub', async () => {
+      mockSend.mockResolvedValueOnce({ Item: { Data: { S: JSON.stringify(calendarAccountRecord) } } })
+      const result = await getCalendarAccount(googleSub)
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ Key: { PK: { S: `google#${googleSub}` }, SK: { S: 'CALENDAR' } } }),
+      )
+      expect(result).toEqual(calendarAccountRecord)
+    })
+
+    it('should return null when no record exists', async () => {
+      mockSend.mockResolvedValueOnce({ Item: undefined })
+      const result = await getCalendarAccount(googleSub)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('putCalendarAccount', () => {
+    it('should store the CALENDAR record keyed by googleSub', async () => {
+      mockSend.mockResolvedValueOnce({})
+      await putCalendarAccount(calendarAccountRecord)
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Item: {
+            Data: { S: JSON.stringify(calendarAccountRecord) },
+            expiration: { N: `${calendarAccountRecord.expiration}` },
+            PK: { S: `google#${googleSub}` },
+            SK: { S: 'CALENDAR' },
+          },
+        }),
+      )
+    })
+  })
+
+  describe('deleteCalendarAccount', () => {
+    it('should delete the CALENDAR record for a googleSub', async () => {
+      mockSend.mockResolvedValueOnce({})
+      await deleteCalendarAccount(googleSub)
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ Key: { PK: { S: `google#${googleSub}` }, SK: { S: 'CALENDAR' } } }),
       )
     })
   })

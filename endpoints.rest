@@ -1,5 +1,46 @@
-### Create a plan
-# Authenticated variant: POST {{host}}/sessions/authed (Cognito JWT)
+### Get config
+# Static defaults and limits enforced by the API -- fetch this before showing the create-poll form so
+# the frontend never hardcodes values that could drift from actual server-side validation.
+# maxPollDateRangeDays is the exact max offset (in days, inclusive) from today a poll date may be --
+# POST /sessions enforces this identical value, so a frontend date-picker bounded by it should rarely
+# offer a date the server rejects. "Today" is still resolved server-side, in the poll's timezone, at
+# submit time -- a browser in a different timezone or a fetch/submit gap crossing a day boundary can
+# still shift the edge by a day, so POST /sessions remains the authority and its 400 must still be
+# handled.
+
+GET {{host}}/config
+
+# Response 200:
+# {
+#   "maxPollDates": 90,
+#   "pollNameMaxLength": 100,
+#   "participantNameMaxLength": 50,
+#   "allowedSlotMinutes": [15, 30, 60, 90, 120],
+#   "defaultSlotMinutes": 60,
+#   "startEndMinuteStep": 15,
+#   "maxPollDateRangeDays": 365,
+#   "maxUsersPerSession": 20,
+#   "sessionExpireHours": 336
+# }
+
+###
+
+### Create a poll
+# Authenticated variant: POST {{host}}/sessions/authed (Cognito JWT via Authorization header).
+# x-recaptcha-token is required only on the unauthenticated variant. The authed route (Cognito JWT)
+# skips the reCAPTCHA check entirely — proving identity via a signed Google JWT replaces it.
+#
+# dates is a flat, sorted list of candidate ISO dates -- however the client generated them (a weekday-
+# recurrence helper, or hand-picked individual dates), the API only ever sees the resolved list. Max
+# length is MAX_POLL_DATES. Every date must be today or later, and at most maxPollDateRangeDays (see
+# GET /config) days from today -- both checked against the poll's timezone.
+#
+# usesTimes toggles whether a time-of-day window applies:
+# - false: no startMinute/endMinute/slotMinutes -- availability is one boolean per date.
+# - true: startMinute/endMinute (minutes since local midnight, multiples of 15) define the window, and
+#   slotMinutes (one of 15/30/60/90/120, default 60) is the length of each candidate meeting slot. Slot
+#   start times slide across the window stepped by 30 minutes (15 minutes only when slotMinutes is 15) --
+#   slots overlap rather than partition the range.
 
 POST {{host}}/sessions
 Content-Type: application/json
@@ -7,58 +48,71 @@ x-recaptcha-token: test-token
 
 {
   "name": "Fall rec soccer practice",
-  "weekdays": [4, 5, 6],
-  "startDate": "2025-09-04",
-  "weekCount": 6,
-  "startHour": 16,
-  "endHour": 20,
+  "dates": ["2025-09-04", "2025-09-05", "2025-09-06"],
+  "usesTimes": true,
+  "startMinute": 960,
+  "endMinute": 1080,
+  "slotMinutes": 60,
   "timezone": "America/Chicago"
 }
 
 # Response 201:
 # { "sessionId": "spring-owl" }
 #
-# Response 400: missing name, empty weekdays, invalid weekCount, etc.
-# Response 403: reCAPTCHA score too low
+# Response 400: missing name, empty/oversized/duplicate dates, invalid usesTimes combination, etc.
+# Response 403: reCAPTCHA score too low (unauthenticated variant only)
 
 ###
 
-### Get plan by ID
+### Get poll by ID
+# slots is the server-generated Slot[] for this poll (same buildSlots output used internally for the
+# overlap grid) -- the frontend renders grid/results columns from this instead of reimplementing slot
+# generation. Always a single 0-1440 slot for usesTimes: false polls.
 GET {{host}}/sessions/{{sessionId}}
 
 # Response 200:
 # {
 #   "sessionId": "spring-owl",
 #   "name": "Fall rec soccer practice",
-#   "weekdays": [4, 5, 6],
-#   "startDate": "2025-09-04",
-#   "weekCount": 6,
-#   "startHour": 16,
-#   "endHour": 20,
+#   "dates": ["2025-09-04", "2025-09-05", "2025-09-06"],
+#   "usesTimes": true,
+#   "startMinute": 960,
+#   "endMinute": 1080,
+#   "slotMinutes": 60,
 #   "timezone": "America/Chicago",
-#   "users": ["brave-tiger", "clever-fox"],
-#   "expiration": 1725453600
+#   "expiration": 1725453600,
+#   "participantCount": 2,
+#   "slots": [
+#     { "slotIndex": 0, "startMinute": 960, "endMinute": 1020 },
+#     { "slotIndex": 1, "startMinute": 990, "endMinute": 1050 },
+#     { "slotIndex": 2, "startMinute": 1020, "endMinute": 1080 }
+#   ]
 # }
 #
 # Response 404: session not found or expired
 
 ###
 
-### Get users for plan
+### Get users for poll
 
 GET {{host}}/sessions/{{sessionId}}/users
 
+# calendarStatus is "not_connected" | "connected" | "error", derived from the user's Google account
+# (if any) and defaulting to "not_connected" if that lookup fails.
+#
 # Response 200:
 # [
 #   {
 #     "userId": "brave-tiger",
 #     "name": "Alice",
-#     "expiration": 1725453600
+#     "expiration": 1725453600,
+#     "calendarStatus": "connected"
 #   },
 #   {
 #     "userId": "clever-fox",
 #     "name": "Bob",
-#     "expiration": 1725453600
+#     "expiration": 1725453600,
+#     "calendarStatus": "not_connected"
 #   }
 # ]
 #
@@ -66,8 +120,10 @@ GET {{host}}/sessions/{{sessionId}}/users
 
 ###
 
-### Join a plan
-# Authenticated variant: POST {{host}}/sessions/{{sessionId}}/users/authed (Cognito JWT)
+### Join a poll
+# Authenticated variant: POST {{host}}/sessions/{{sessionId}}/users/authed (Cognito JWT).
+# On the authed variant, name is populated from the Google account's name claim instead of null,
+# and the new user is linked to that Google account (googleSub, not returned in the response).
 
 POST {{host}}/sessions/{{sessionId}}/users
 
@@ -86,7 +142,9 @@ POST {{host}}/sessions/{{sessionId}}/users
 ### Update user info (name)
 # JSON Patch format. Allowed ops: replace.
 # Allowed paths: /name
-# Authenticated variant: PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/authed (Cognito JWT)
+# Authenticated variant: PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/authed (Cognito JWT).
+# On the authed variant, if the user isn't already linked to a Google account, this call links it
+# (googleSub set from the JWT) as a side effect — even though the request body only touches /name.
 
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}
 Content-Type: application/json
@@ -96,40 +154,104 @@ Content-Type: application/json
 ]
 
 # Response 200: updated user object
-# Response 400: disallowed path, name > 50 chars
+# Response 400: disallowed op, disallowed path, name > 50 chars
 # Response 404: session or user not found
 
 ###
 
 ### Get availability
+# free is a flat grid keyed [dateIndex][slotIndex] -- slotIndex is always 0 when the poll's usesTimes is
+# false. There is no recurring pattern or per-week override concept; every date/slot is independent.
 GET {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 
 # Response 200:
 # {
 #   "userId": "brave-tiger",
-#   "availability": [
-#     [
-#       { "hourIndex": 0, "dayIndex": 0, "value": null },
-#       { "hourIndex": 0, "dayIndex": 1, "value": null },
-#       ...
-#     ]
-#   ]
+#   "free": [
+#     [false, false, false],
+#     [true, true, false],
+#     [true, true, true]
+#   ],
+#   "expiration": 1725453600
 # }
 #
 # Response 404: session or user not found
 
 ###
 
-### Paint the template
+### Set availability
+# cells: array of { dateIndex, slotIndex, value }. slotIndex is always 0 when the poll's usesTimes is false.
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 Content-Type: application/json
 
 {
-  "weekIndex": null,
-  "cells": [{ "hourIndex": 2, "dayIndex": 0, "value": true }],
-  "resetToPattern": false
+  "cells": [{ "dateIndex": 0, "slotIndex": 0, "value": true }]
 }
 
-# Response 200: updated availability grid
-# Response 400: invalid weekIndex, cells, or resetToPattern
+# Response 200: the full updated availability record, same shape as GET .../availability
+# Response 400: invalid cells (out-of-bounds dateIndex/slotIndex, non-boolean value)
+# Response 404: session or user not found
+
+###
+
+### Get overlap grid and recommended meeting times
+# Always reflects the whole poll -- there is no pattern/week view distinction anymore.
+# recommendedMeetings factors in connected Google Calendar busy time for each user in addition to their
+# marked availability. Each entry lists excludedByCalendar: userIds who marked themselves free for that
+# slot but were excluded because their calendar shows a conflict.
+
+GET {{host}}/sessions/{{sessionId}}/overlap
+
+# Response 200:
+# {
+#   "grid": {
+#     "cells": [
+#       [
+#         { "dateIndex": 0, "slotIndex": 0, "startMinute": 540, "endMinute": 600, "freeCount": 1, "freeUserIds": ["brave-tiger"] }
+#       ]
+#     ],
+#     "bestSlot": { "dateIndex": 0, "slotIndex": 0, "freeCount": 1 }
+#   },
+#   "recommendedMeetings": [
+#     {
+#       "dateIndex": 0,
+#       "slotIndex": 0,
+#       "date": "2025-09-04",
+#       "startMinute": 540,
+#       "endMinute": 600,
+#       "freeCount": 1,
+#       "freeUserIds": ["brave-tiger"],
+#       "excludedByCalendar": []
+#     }
+#   ]
+# }
+#
+# Response 404: session not found or expired
+
+###
+
+### Start Google Calendar connect flow
+POST {{host}}/sessions/{{sessionId}}/users/{{userId}}/calendar/connect
+Authorization: Bearer {{cognitoIdToken}}
+
+# Response 200 (not yet connected): { "alreadyConnected": false, "authUrl": "https://accounts.google.com/o/oauth2/v2/auth?..." }
+# Response 200 (already connected, any poll): { "alreadyConnected": true }
+# Response 400: not authenticated with Google
+# Response 404: session or user not found
+
+###
+
+### Google Calendar OAuth callback (browser redirect target, not called directly)
+GET {{host}}/oauth/google-calendar/callback?code=...&state=...
+
+# Always redirects (302) to {webAppUrl}/calendar-connected?status=connected|declined|error
+
+###
+
+### Disconnect Google Calendar (revokes everywhere this Google account is connected, not just this poll)
+DELETE {{host}}/sessions/{{sessionId}}/users/{{userId}}/calendar
+Authorization: Bearer {{cognitoIdToken}}
+
+# Response 204: disconnected (or was never connected)
+# Response 400: not authenticated with Google
 # Response 404: session or user not found

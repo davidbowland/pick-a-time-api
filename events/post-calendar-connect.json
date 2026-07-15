@@ -1,0 +1,20 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "userId": "fuzzy-penguin"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/v1/sessions/abc123/users/fuzzy-penguin/calendar/connect"
+    },
+    "authorizer": {
+      "jwt": {
+        "claims": {
+          "sub": "google-sub-123",
+          "name": "Google User"
+        }
+      }
+    }
+  }
+}

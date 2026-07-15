@@ -3,7 +3,7 @@
     "sessionId": "abc123",
     "userId": "fuzzy-penguin"
   },
-  "body": "{\"weekIndex\":null,\"cells\":[{\"hourIndex\":1,\"dayIndex\":0,\"value\":true}],\"resetToPattern\":false}",
+  "body": "{\"cells\":[{\"dateIndex\":0,\"slotIndex\":0,\"value\":true}]}",
   "requestContext": {
     "http": {
       "method": "PATCH",

@@ -1,5 +1,6 @@
 import { NotFoundError } from '../errors'
 import { getSession } from '../services/dynamodb'
+import { buildSlots } from '../services/slots'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { log, logError } from '../utils/logging'
 import status from '../utils/status'
@@ -14,7 +15,10 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       return status.NOT_FOUND
     }
 
-    return { ...status.OK, body: JSON.stringify({ ...session, participantCount: users.length }) }
+    return {
+      ...status.OK,
+      body: JSON.stringify({ ...session, slots: buildSlots(session), participantCount: users.length }),
+    }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND
     logError(error)

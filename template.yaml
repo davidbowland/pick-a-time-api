@@ -33,23 +33,23 @@ Parameters:
 Mappings:
   EnvironmentMap:
     prod:
-      certificateEdge: cdf7b531-7189-4a69-a82c-ea54ef16729e
       certificateRegional: cdf7b531-7189-4a69-a82c-ea54ef16729e
       corsDomain: https://pick-a-time.com
       domain: api.pick-a-time.com
-      domainInternal: api-internal.pick-a-time.com
       logStreamFunction: log-subscriber
-      maxPlanWeeks: '12'
+      maxPollDates: '90'
+      maxUsersPerSession: '20'
+      sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions
       zoneId: Z09477181IUYK36D4AQQV
     test:
-      certificateEdge: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
       certificateRegional: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
       corsDomain: https://pick-a-time.bowland.link
       domain: pick-a-time-api.bowland.link
-      domainInternal: pick-a-time-api-internal.bowland.link
       logStreamFunction: log-subscriber-test
-      maxPlanWeeks: '12'
+      maxPollDates: '90'
+      maxUsersPerSession: '20'
+      sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions-test
       zoneId: Z01312547RGU1BYKIJXY
 
@@ -69,26 +69,6 @@ Globals:
 
 Resources:
   # API Gateway
-
-  Api:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: v1
-      Auth:
-        ApiKeyRequired: true
-        UsagePlan:
-          CreateUsagePlan: PER_API
-          Description: Usage plan for pick-a-time-api
-      Domain:
-        DomainName: !FindInMap [EnvironmentMap, !Ref Environment, domainInternal]
-        CertificateArn: !Sub
-          - 'arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${Certificate}'
-          - Certificate: !FindInMap [EnvironmentMap, !Ref Environment, certificateEdge]
-        EndpointConfiguration: EDGE
-        Route53:
-          HostedZoneId: !FindInMap [EnvironmentMap, !Ref Environment, zoneId]
-        BasePath:
-          - /v1
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
@@ -111,7 +91,6 @@ Resources:
           - Content-Type
           - X-Amz-Date
           - X-Amz-Security-Token
-          - X-Api-Key
           - X-Recaptcha-Token
         AllowMethods:
           - DELETE
@@ -143,7 +122,92 @@ Resources:
       Name: !FindInMap [EnvironmentMap, !Ref Environment, domain]
       Type: A
 
+  # KMS
+
+  CalendarTokenKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Encrypts Google Calendar refresh tokens at rest (pick-a-time-api)
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  CalendarTokenKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/pick-a-time-calendar-token-${Environment}'
+      TargetKeyId: !Ref CalendarTokenKey
+
   # Lambda
+
+  ## Config
+
+  GetConfigFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/get-config.handler
+      MemorySize: 512
+      Description: pick-a-time-api get poll/session defaults and limits
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Environment:
+        Variables:
+          MAX_POLL_DATES: !FindInMap [EnvironmentMap, !Ref Environment, maxPollDates]
+          MAX_USERS_PER_SESSION: !FindInMap [EnvironmentMap, !Ref Environment, maxUsersPerSession]
+          SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /config
+            Method: get
+            Auth:
+              Authorizer: NONE
+      Timeout: 10
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/get-config.ts
+
+  GetConfigLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetConfigFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  GetConfigLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref GetConfigLogGroup
 
   ## Sessions
 
@@ -169,17 +233,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          MAX_PLAN_WEEKS: !FindInMap [EnvironmentMap, !Ref Environment, maxPlanWeeks]
-          SESSION_EXPIRE_HOURS: '24'
+          MAX_POLL_DATES: !FindInMap [EnvironmentMap, !Ref Environment, maxPollDates]
+          SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions
-            Method: post
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -242,17 +298,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          MAX_PLAN_WEEKS: !FindInMap [EnvironmentMap, !Ref Environment, maxPlanWeeks]
-          SESSION_EXPIRE_HOURS: '24'
+          MAX_POLL_DATES: !FindInMap [EnvironmentMap, !Ref Environment, maxPollDates]
+          SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/authed
-            Method: post
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -307,14 +355,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}
-            Method: get
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -371,14 +411,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users
-            Method: get
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -432,16 +464,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          MAX_USERS_PER_SESSION: '20'
+          MAX_USERS_PER_SESSION: !FindInMap [EnvironmentMap, !Ref Environment, maxUsersPerSession]
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users
-            Method: post
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -495,16 +519,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          MAX_USERS_PER_SESSION: '20'
+          MAX_USERS_PER_SESSION: !FindInMap [EnvironmentMap, !Ref Environment, maxUsersPerSession]
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users/authed
-            Method: post
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -559,14 +575,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users/{userId}
-            Method: patch
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -621,14 +629,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users/{userId}/authed
-            Method: patch
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -685,14 +685,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users/{userId}/availability
-            Method: get
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -733,6 +725,75 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref GetAvailabilityLogGroup
 
+  GetOverlapFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/get-overlap.handler
+      MemorySize: 1536
+      Description: pick-a-time-api get session overlap and recommended meetings
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-secret'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource:
+                - !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
+                - !GetAtt CalendarTokenKey.Arn
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
+          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/overlap
+            Method: get
+            Auth:
+              Authorizer: NONE
+      Timeout: 60
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/get-overlap.ts
+
+  GetOverlapLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetOverlapFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  GetOverlapLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref GetOverlapLogGroup
+
   PatchAvailabilityFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -747,14 +808,6 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
       Events:
-        ApiKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref Api
-            Path: /sessions/{sessionId}/users/{userId}/availability
-            Method: patch
-            Auth:
-              ApiKeyRequired: true
         Http:
           Type: HttpApi
           Properties:
@@ -794,6 +847,211 @@ Resources:
         - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PatchAvailabilityLogGroup
+
+  ## Calendar sync
+
+  PostCalendarConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/post-calendar-connect.handler
+      MemorySize: 512
+      Description: pick-a-time-api start Google Calendar connect flow
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBReadPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          GOOGLE_CALENDAR_REDIRECT_URI: !Sub
+            - 'https://${Domain}/v1/oauth/google-calendar/callback'
+            - Domain: !FindInMap [EnvironmentMap, !Ref Environment, domain]
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/users/{userId}/calendar/connect
+            Method: post
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Timeout: 30
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/post-calendar-connect.ts
+
+  PostCalendarConnectLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PostCalendarConnectFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  PostCalendarConnectLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref PostCalendarConnectLogGroup
+
+  GetCalendarCallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/get-calendar-callback.handler
+      MemorySize: 512
+      Description: pick-a-time-api Google Calendar OAuth callback (unauthenticated, state-verified)
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-secret'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
+            - Effect: Allow
+              Action:
+                - kms:Encrypt
+              Resource: !GetAtt CalendarTokenKey.Arn
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
+          GOOGLE_CALENDAR_REDIRECT_URI: !Sub
+            - 'https://${Domain}/v1/oauth/google-calendar/callback'
+            - Domain: !FindInMap [EnvironmentMap, !Ref Environment, domain]
+          WEB_APP_URL: !FindInMap [EnvironmentMap, !Ref Environment, corsDomain]
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /oauth/google-calendar/callback
+            Method: get
+            Auth:
+              Authorizer: NONE
+      Timeout: 30
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/get-calendar-callback.ts
+
+  GetCalendarCallbackLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetCalendarCallbackFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  GetCalendarCallbackLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref GetCalendarCallbackLogGroup
+
+  DeleteCalendarFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/delete-calendar.handler
+      MemorySize: 512
+      Description: pick-a-time-api disconnect Google Calendar
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !GetAtt CalendarTokenKey.Arn
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/users/{userId}/calendar
+            Method: delete
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Timeout: 30
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/delete-calendar.ts
+
+  DeleteCalendarLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${DeleteCalendarFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  DeleteCalendarLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref DeleteCalendarLogGroup
 
   # Cognito — Google-only authentication
 

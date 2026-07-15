@@ -32,3 +32,10 @@ export class MaxUsersError extends Error {
     this.name = 'MaxUsersError'
   }
 }
+
+export class InvalidGrantError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidGrantError'
+  }
+}

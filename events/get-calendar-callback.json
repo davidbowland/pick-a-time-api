@@ -1,0 +1,12 @@
+{
+  "queryStringParameters": {
+    "code": "auth-code-value",
+    "state": "signed-state-token"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/v1/oauth/google-calendar/callback"
+    }
+  }
+}

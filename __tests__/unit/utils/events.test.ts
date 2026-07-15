@@ -1,8 +1,8 @@
 import { ValidationError } from '@errors'
 
-import { newPlanInput } from '../__mocks__'
+import { newPollInput } from '../__mocks__'
 import { APIGatewayProxyEventV2 } from '@types'
-import { extractRecaptchaToken, parseAvailabilityPatch, parseNewPlanBody, parseUserPatch } from '@utils/events'
+import { extractRecaptchaToken, parseAvailabilityPatch, parseNewPollBody, parseUserPatch } from '@utils/events'
 
 const makeEvent = (overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 =>
   ({
@@ -22,47 +22,128 @@ const withBody = (body: unknown, base64 = false): Partial<APIGatewayProxyEventV2
 }
 
 describe('events', () => {
-  describe('parseNewPlanBody', () => {
+  describe('parseNewPollBody', () => {
     const bodyEvent = (body: unknown): APIGatewayProxyEventV2 =>
       ({ body: JSON.stringify(body), isBase64Encoded: false }) as unknown as APIGatewayProxyEventV2
+    // Fixed "now" before every fixture date (Sept 2025) and within a year of them.
+    const now = () => Date.UTC(2025, 7, 15)
 
-    it('should return the parsed input on a valid body', () => {
-      expect(parseNewPlanBody(bodyEvent(newPlanInput))).toEqual(newPlanInput)
+    it('should return the parsed input on a valid timed-poll body', () => {
+      expect(parseNewPollBody(bodyEvent(newPollInput), now)).toEqual(newPollInput)
+    })
+
+    it('should return the parsed input on a valid dates-only body', () => {
+      const datesOnlyInput = {
+        name: 'Trip planning',
+        dates: ['2025-09-04', '2025-09-05'],
+        usesTimes: false,
+        timezone: 'America/Chicago',
+      }
+      expect(parseNewPollBody(bodyEvent(datesOnlyInput), now)).toEqual(datesOnlyInput)
+    })
+
+    it('should default slotMinutes to 60 when omitted on a timed poll', () => {
+      const { slotMinutes: _slotMinutes, ...withoutSlotMinutes } = newPollInput
+      expect(parseNewPollBody(bodyEvent(withoutSlotMinutes), now).slotMinutes).toBe(60)
     })
 
     it('should throw when name is empty', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, name: '  ' }))).toThrow(ValidationError)
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, name: '  ' }), now)).toThrow(ValidationError)
     })
 
-    it('should throw when weekdays has a duplicate', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, weekdays: [4, 4, 6] }))).toThrow(ValidationError)
+    it('should throw when dates is empty', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: [] }), now)).toThrow(ValidationError)
     })
 
-    it('should throw when weekdays has an out-of-range value', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, weekdays: [4, 5, 7] }))).toThrow(ValidationError)
-    })
-
-    it('should throw when startDate does not fall on weekdays[0]', () => {
-      // 2025-09-05 is a Friday, not a Thursday
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, startDate: '2025-09-05' }))).toThrow(ValidationError)
-    })
-
-    it('should throw when startDate is not a real calendar date', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, startDate: '2025-02-30' }))).toThrow(ValidationError)
-    })
-
-    it('should throw when weekCount exceeds the maximum', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, weekCount: 13 }))).toThrow(ValidationError)
-    })
-
-    it('should throw when endHour is not after startHour', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, startHour: 16, endHour: 16 }))).toThrow(
+    it('should throw when dates has a duplicate', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2025-09-04', '2025-09-04'] }), now)).toThrow(
         ValidationError,
       )
     })
 
+    it('should throw when a date is not a real calendar date', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2025-02-30'] }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should throw when dates exceeds the maximum', () => {
+      const tooMany = Array.from({ length: 91 }, (_, i) => {
+        const date = new Date(Date.UTC(2025, 8, 1) + i * 86_400_000)
+        return date.toISOString().slice(0, 10)
+      })
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: tooMany }), now)).toThrow(ValidationError)
+    })
+
     it('should throw when timezone is not a valid IANA name', () => {
-      expect(() => parseNewPlanBody(bodyEvent({ ...newPlanInput, timezone: 'Not/AZone' }))).toThrow(ValidationError)
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, timezone: 'Not/AZone' }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should throw when a date is in the past', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2024-01-01'] }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should throw when a date is a year or more away', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2026-09-01'] }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should accept a date exactly maxPollDateRangeDays (365) days from today', () => {
+      // now = 2025-08-15T00:00:00Z, but "today" is resolved in America/Chicago (UTC-5 in August),
+      // so the zoned today is 2025-08-14. +365 days (no Feb 29 in this span) = 2026-08-14, the exact
+      // inclusive boundary.
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2026-08-14'] }), now)).not.toThrow()
+    })
+
+    it('should throw when a date is one day beyond maxPollDateRangeDays', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, dates: ['2026-08-15'] }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should throw when usesTimes is missing', () => {
+      const { usesTimes: _usesTimes, ...withoutUsesTimes } = newPollInput
+      expect(() => parseNewPollBody(bodyEvent(withoutUsesTimes), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when usesTimes is false but startMinute is present', () => {
+      expect(() =>
+        parseNewPollBody(
+          bodyEvent({
+            name: 'x',
+            dates: ['2025-09-04'],
+            usesTimes: false,
+            timezone: 'America/Chicago',
+            startMinute: 0,
+          }),
+          now,
+        ),
+      ).toThrow(ValidationError)
+    })
+
+    it('should throw when startMinute is not a multiple of 15', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, startMinute: 961 }), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when endMinute is not after startMinute', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, startMinute: 960, endMinute: 960 }), now)).toThrow(
+        ValidationError,
+      )
+    })
+
+    it('should throw when slotMinutes is not one of the allowed presets', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, slotMinutes: 45 }), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when the time window is narrower than slotMinutes', () => {
+      expect(() =>
+        parseNewPollBody(bodyEvent({ ...newPollInput, endMinute: newPollInput.startMinute + 30 }), now),
+      ).toThrow(ValidationError)
     })
   })
 
@@ -138,43 +219,36 @@ describe('events', () => {
   describe('parseAvailabilityPatch', () => {
     const bodyEvent = (body: unknown): APIGatewayProxyEventV2 =>
       ({ body: JSON.stringify(body), isBase64Encoded: false }) as unknown as APIGatewayProxyEventV2
-    const validBody = { weekIndex: null, cells: [{ hourIndex: 1, dayIndex: 0, value: true }], resetToPattern: false }
+    const validBody = { cells: [{ dateIndex: 1, slotIndex: 0, value: true }] }
 
     it('should return the parsed input on a valid body', () => {
       expect(parseAvailabilityPatch(bodyEvent(validBody))).toEqual(validBody)
     })
 
-    it('should default resetToPattern to false when omitted', () => {
-      const { resetToPattern: _resetToPattern, ...withoutFlag } = validBody
-      expect(parseAvailabilityPatch(bodyEvent(withoutFlag)).resetToPattern).toBe(false)
+    it('should throw when cells is empty', () => {
+      expect(() => parseAvailabilityPatch(bodyEvent({ cells: [] }))).toThrow(ValidationError)
     })
 
-    it('should throw when resetToPattern is true but weekIndex is null', () => {
-      expect(() => parseAvailabilityPatch(bodyEvent({ weekIndex: null, cells: [], resetToPattern: true }))).toThrow(
-        ValidationError,
-      )
+    it('should throw when cells is missing', () => {
+      expect(() => parseAvailabilityPatch(bodyEvent({}))).toThrow(ValidationError)
     })
 
-    it('should allow resetToPattern alone with no cells', () => {
-      const body = { weekIndex: 2, cells: [], resetToPattern: true }
-      expect(parseAvailabilityPatch(bodyEvent(body))).toEqual(body)
+    it('should throw when a cell has a negative dateIndex', () => {
+      expect(() =>
+        parseAvailabilityPatch(bodyEvent({ cells: [{ dateIndex: -1, slotIndex: 0, value: true }] })),
+      ).toThrow(ValidationError)
     })
 
-    it('should throw when cells is empty and resetToPattern is false', () => {
-      expect(() => parseAvailabilityPatch(bodyEvent({ weekIndex: null, cells: [], resetToPattern: false }))).toThrow(
-        ValidationError,
-      )
+    it('should throw when a cell has a negative slotIndex', () => {
+      expect(() =>
+        parseAvailabilityPatch(bodyEvent({ cells: [{ dateIndex: 0, slotIndex: -1, value: true }] })),
+      ).toThrow(ValidationError)
     })
 
-    it('should throw when a cell has a negative hourIndex', () => {
-      const body = { weekIndex: null, cells: [{ hourIndex: -1, dayIndex: 0, value: true }], resetToPattern: false }
-      expect(() => parseAvailabilityPatch(bodyEvent(body))).toThrow(ValidationError)
-    })
-
-    it('should throw when weekIndex is negative', () => {
-      expect(() => parseAvailabilityPatch(bodyEvent({ weekIndex: -1, cells: [], resetToPattern: true }))).toThrow(
-        ValidationError,
-      )
+    it('should throw when a cell value is not a boolean', () => {
+      expect(() =>
+        parseAvailabilityPatch(bodyEvent({ cells: [{ dateIndex: 0, slotIndex: 0, value: 'yes' }] })),
+      ).toThrow(ValidationError)
     })
   })
 })

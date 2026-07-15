@@ -1,4 +1,9 @@
-import { getRecaptchaSecretKey } from '@services/secrets'
+import {
+  getGoogleCalendarClientId,
+  getGoogleCalendarClientSecret,
+  getOauthStateSecret,
+  getRecaptchaSecretKey,
+} from '@services/secrets'
 
 const mockSend = jest.fn()
 jest.mock('@aws-sdk/client-ssm', () => ({
@@ -47,6 +52,39 @@ describe('secrets', () => {
       mockSend.mockResolvedValueOnce({ Parameter: {} })
       await expect(getRecaptchaSecretKey(() => 20_000_000)).rejects.toThrow(
         'SSM parameter /pick-a-time/recaptcha-secret-key has no value',
+      )
+    })
+  })
+
+  describe('getOauthStateSecret', () => {
+    it('should fetch the oauth state secret parameter', async () => {
+      mockSend.mockResolvedValueOnce({ Parameter: { Value: 'state-signing-secret' } })
+      const result = await getOauthStateSecret(() => 0)
+      expect(result).toBe('state-signing-secret')
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ Name: '/pick-a-time/oauth-state-secret', WithDecryption: true }),
+      )
+    })
+  })
+
+  describe('getGoogleCalendarClientId', () => {
+    it('should fetch the calendar client id parameter', async () => {
+      mockSend.mockResolvedValueOnce({ Parameter: { Value: 'calendar-client-id' } })
+      const result = await getGoogleCalendarClientId(() => 0)
+      expect(result).toBe('calendar-client-id')
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ Name: '/pick-a-time/google-calendar-client-id', WithDecryption: true }),
+      )
+    })
+  })
+
+  describe('getGoogleCalendarClientSecret', () => {
+    it('should fetch the calendar client secret parameter', async () => {
+      mockSend.mockResolvedValueOnce({ Parameter: { Value: 'calendar-client-secret' } })
+      const result = await getGoogleCalendarClientSecret(() => 0)
+      expect(result).toBe('calendar-client-secret')
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ Name: '/pick-a-time/google-calendar-client-secret', WithDecryption: true }),
       )
     })
   })

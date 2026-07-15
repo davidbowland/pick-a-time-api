@@ -8,20 +8,27 @@ export interface PatchOperation {
 
 // DynamoDB record types — single-table design
 
-export interface PlanRecord {
+export interface DatesOnlyPoll {
+  usesTimes: false
+}
+
+export interface TimedPoll {
+  usesTimes: true
+  startMinute: number // minutes since local midnight; multiple of 15; 0-1425
+  endMinute: number // minutes since local midnight; multiple of 15; > startMinute, <= 1440
+  slotMinutes: 15 | 30 | 60 | 90 | 120
+}
+
+export type PollRecord = (DatesOnlyPoll | TimedPoll) & {
   sessionId: string
   name: string
-  weekdays: number[] // 0=Sun..6=Sat, in display column order, e.g. [4,5,6] for Thu/Fri/Sat
-  startDate: string // ISO date "YYYY-MM-DD" — must fall on weekdays[0]
-  weekCount: number
-  startHour: number // 0-23
-  endHour: number // 1-24, exclusive upper bound, > startHour
+  dates: string[] // ISO "YYYY-MM-DD", sorted ascending, deduplicated, 1..maxPollDates entries; not in the past, less than a year out (both checked against the poll's timezone)
   timezone: string // IANA name, e.g. "America/Chicago"
   expiration: number
 }
 
 export interface SessionWithUsers {
-  session: PlanRecord
+  session: PollRecord
   users: string[]
 }
 
@@ -34,33 +41,37 @@ export interface UserRecord {
 
 export interface AvailabilityRecord {
   userId: string
-  template: boolean[][] // [hourIndex][dayIndex], sized (endHour-startHour) x weekdays.length
-  overrides: Record<number, boolean[][]> // sparse, keyed by weekIndex (0-based)
+  free: boolean[][] // [dateIndex][slotIndex]; slotIndex always 0 when the poll's usesTimes is false
+  expiration: number
+}
+
+export interface CalendarAccountRecord {
+  googleSub: string
+  refreshTokenEncrypted: string // KMS-encrypted, base64
+  scope: string
+  status: 'connected' | 'error'
+  lastSyncedAt: number
+  syncedRange: { start: string; end: string } | null // ISO dates covered by busyIntervals
+  busyIntervals: { start: string; end: string }[] // raw UTC instants from Google's freebusy response
   expiration: number
 }
 
 // Input types
 
-export interface NewPlanInput {
+export type NewPollInput = (DatesOnlyPoll | TimedPoll) & {
   name: string
-  weekdays: number[]
-  startDate: string
-  weekCount: number
-  startHour: number
-  endHour: number
+  dates: string[]
   timezone: string
 }
 
 export interface AvailabilityCell {
-  hourIndex: number
-  dayIndex: number
+  dateIndex: number
+  slotIndex: number // always 0 when the poll's usesTimes is false
   value: boolean
 }
 
 export interface AvailabilityPatchInput {
-  weekIndex: number | null // null = editing the template; 0-based otherwise
   cells: AvailabilityCell[]
-  resetToPattern: boolean
 }
 
 // Auth

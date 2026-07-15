@@ -2,30 +2,41 @@ import { sessionExpireHours } from '../config'
 import { ConflictError, ForbiddenError, ValidationError } from '../errors'
 import { putNewSession } from '../services/dynamodb'
 import { getCaptchaScore } from '../services/recaptcha'
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, NewPlanInput, PlanRecord } from '../types'
-import { extractRecaptchaToken, parseNewPlanBody } from '../utils/events'
+import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, NewPollInput, PollRecord } from '../types'
+import { extractAuthContext } from '../utils/auth'
+import { extractRecaptchaToken, parseNewPollBody } from '../utils/events'
 import { generateSessionId } from '../utils/id-generator'
 import { log, logError } from '../utils/logging'
 import status from '../utils/status'
 
 const MAX_ID_RETRIES = 5
 
-const buildPlan = (sessionId: string, input: NewPlanInput, expiration: number): PlanRecord => ({
-  endHour: input.endHour,
-  expiration,
-  name: input.name,
-  sessionId,
-  startDate: input.startDate,
-  startHour: input.startHour,
-  timezone: input.timezone,
-  weekCount: input.weekCount,
-  weekdays: input.weekdays,
-})
+const buildPoll = (sessionId: string, input: NewPollInput, expiration: number): PollRecord =>
+  input.usesTimes
+    ? {
+      sessionId,
+      name: input.name,
+      dates: input.dates,
+      usesTimes: true,
+      startMinute: input.startMinute,
+      endMinute: input.endMinute,
+      slotMinutes: input.slotMinutes,
+      timezone: input.timezone,
+      expiration,
+    }
+    : {
+      sessionId,
+      name: input.name,
+      dates: input.dates,
+      usesTimes: false,
+      timezone: input.timezone,
+      expiration,
+    }
 
-const createSessionWithUniqueId = async (input: NewPlanInput, expiration: number): Promise<string> => {
+const createSessionWithUniqueId = async (input: NewPollInput, expiration: number): Promise<string> => {
   for (let attempt = 0; attempt < MAX_ID_RETRIES; attempt++) {
     const sessionId = generateSessionId()
-    const session = buildPlan(sessionId, input, expiration)
+    const session = buildPoll(sessionId, input, expiration)
     try {
       await putNewSession(sessionId, session)
       return sessionId
@@ -46,13 +57,16 @@ export const postSession = async (
 ): Promise<APIGatewayProxyResultV2> => {
   log('Received event', { ...event, body: undefined })
   try {
-    const recaptchaToken = extractRecaptchaToken(event)
-    const input = parseNewPlanBody(event)
+    const auth = extractAuthContext(event)
+    const recaptchaToken = auth.isAuthenticated ? null : extractRecaptchaToken(event)
+    const input = parseNewPollBody(event, nowMs)
 
-    const score = await getCaptchaScore(recaptchaToken)
-    log('reCAPTCHA result', { score })
-    if (score < 0.7) {
-      throw new ForbiddenError('reCAPTCHA score too low')
+    if (recaptchaToken !== null) {
+      const score = await getCaptchaScore(recaptchaToken)
+      log('reCAPTCHA result', { score })
+      if (score < 0.7) {
+        throw new ForbiddenError('reCAPTCHA score too low')
+      }
     }
 
     const expiration = Math.floor(nowMs() / 1000) + sessionExpireHours * 3600

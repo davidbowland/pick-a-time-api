@@ -1,6 +1,11 @@
 import { GetParameterCommand, SSM } from '@aws-sdk/client-ssm'
 
-import { recaptchaSecretKeyParamName } from '../config'
+import {
+  googleCalendarClientIdParamName,
+  googleCalendarClientSecretParamName,
+  oauthStateSecretParamName,
+  recaptchaSecretKeyParamName,
+} from '../config'
 import { xrayCapture } from '../utils/logging'
 
 const ssm = xrayCapture(new SSM({}))
@@ -30,3 +35,12 @@ const getParameter = async (name: string, now: () => number = Date.now): Promise
 
 export const getRecaptchaSecretKey = (now: () => number = Date.now): Promise<string> =>
   getParameter(recaptchaSecretKeyParamName, now)
+
+export const getOauthStateSecret = (now: () => number = Date.now): Promise<string> =>
+  getParameter(oauthStateSecretParamName, now)
+
+export const getGoogleCalendarClientId = (now: () => number = Date.now): Promise<string> =>
+  getParameter(googleCalendarClientIdParamName, now)
+
+export const getGoogleCalendarClientSecret = (now: () => number = Date.now): Promise<string> =>
+  getParameter(googleCalendarClientSecretParamName, now)

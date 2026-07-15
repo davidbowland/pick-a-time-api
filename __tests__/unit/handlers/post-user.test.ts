@@ -32,21 +32,37 @@ describe('post-user', () => {
       expect(body.googleSub).toBeUndefined()
     })
 
-    it('should create an empty availability grid sized from the plan hours and weekdays', async () => {
+    it('should create an empty availability grid sized from the poll dates and slots', async () => {
       await handler(event)
       expect(dynamodb.createUser).toHaveBeenCalledWith(
         sessionId,
         expect.objectContaining({ userId: 'brave-tiger' }),
         expect.objectContaining({
           userId: 'brave-tiger',
-          overrides: {},
-          template: [
-            [false, false, false],
+          free: [
             [false, false, false],
             [false, false, false],
             [false, false, false],
           ],
         }),
+      )
+    })
+
+    it('should create a single-column-per-date grid when the poll does not use times', async () => {
+      const datesOnlySession = {
+        sessionId: 'abc123',
+        name: 'Trip',
+        dates: ['2025-09-04', '2025-09-05'],
+        usesTimes: false as const,
+        timezone: 'America/Chicago',
+        expiration: futureExpiration,
+      }
+      jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: datesOnlySession, users: [] })
+      await handler(event)
+      expect(dynamodb.createUser).toHaveBeenCalledWith(
+        sessionId,
+        expect.anything(),
+        expect.objectContaining({ free: [[false], [false]] }),
       )
     })
 

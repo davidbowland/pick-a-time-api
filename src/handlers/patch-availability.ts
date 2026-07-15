@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from '../errors'
 import { getAvailability, getSession, updateAvailability } from '../services/dynamodb'
+import { buildSlots } from '../services/slots'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { parseAvailabilityPatch } from '../utils/events'
 import { log, logError } from '../utils/logging'
@@ -16,37 +17,17 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     const { session } = await getSession(sessionId)
     assertSessionActive(session)
 
-    const hourCount = session.endHour - session.startHour
-    const dayCount = session.weekdays.length
-
-    if (input.weekIndex !== null && input.weekIndex >= session.weekCount) {
-      throw new ValidationError(`weekIndex must be less than weekCount (${session.weekCount})`)
-    }
+    const dateCount = session.dates.length
+    const slotCount = buildSlots(session).length
     for (const cell of input.cells) {
-      if (cell.hourIndex >= hourCount || cell.dayIndex >= dayCount) {
-        throw new ValidationError(`cell is out of bounds for a ${hourCount}x${dayCount} grid`)
+      if (cell.dateIndex >= dateCount || cell.slotIndex >= slotCount) {
+        throw new ValidationError(`cell is out of bounds for a ${dateCount}x${slotCount} grid`)
       }
     }
 
     const availability = await getAvailability(sessionId, userId)
-
-    if (input.resetToPattern && input.weekIndex !== null) {
-      delete availability.overrides[input.weekIndex]
-    }
-
-    if (input.cells.length > 0) {
-      if (input.weekIndex === null) {
-        for (const cell of input.cells) {
-          availability.template[cell.hourIndex][cell.dayIndex] = cell.value
-        }
-      } else {
-        if (!availability.overrides[input.weekIndex]) {
-          availability.overrides[input.weekIndex] = availability.template.map((row) => row.slice())
-        }
-        for (const cell of input.cells) {
-          availability.overrides[input.weekIndex][cell.hourIndex][cell.dayIndex] = cell.value
-        }
-      }
+    for (const cell of input.cells) {
+      availability.free[cell.dateIndex][cell.slotIndex] = cell.value
     }
 
     await updateAvailability(sessionId, userId, availability)

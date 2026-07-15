@@ -1,6 +1,6 @@
 import { ConflictError, ValidationError } from '@errors'
 
-import { newPlanInput, sessionId } from '../__mocks__'
+import { newPollInput, sessionId } from '../__mocks__'
 import eventJson from '@events/post-session.json'
 import { postSession } from '@handlers/post-session'
 import * as dynamodb from '@services/dynamodb'
@@ -15,7 +15,7 @@ jest.mock('@services/recaptcha')
 jest.mock('@utils/id-generator')
 jest.mock('@utils/events', () => ({
   ...jest.requireActual('@utils/events'),
-  parseNewPlanBody: jest.fn(),
+  parseNewPollBody: jest.fn(),
 }))
 jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
 
@@ -24,7 +24,7 @@ describe('post-session', () => {
   const nowMs = 1_700_000_000_000
 
   beforeAll(() => {
-    jest.mocked(events).parseNewPlanBody.mockReturnValue(newPlanInput)
+    jest.mocked(events).parseNewPollBody.mockReturnValue(newPollInput)
     jest.mocked(recaptcha).getCaptchaScore.mockResolvedValue(0.9)
     jest.mocked(idGenerator).generateSessionId.mockReturnValue(sessionId)
     jest.mocked(dynamodb).putNewSession.mockResolvedValue(undefined)
@@ -37,9 +37,9 @@ describe('post-session', () => {
       expect(JSON.parse((result as { body: string }).body)).toEqual({ sessionId })
     })
 
-    it('should compute expiration from weekCount and nowMs', async () => {
+    it('should compute expiration from sessionExpireHours and nowMs', async () => {
       await postSession(event, () => nowMs)
-      const expectedExpiration = Math.floor(nowMs / 1000) + 24 * 3600
+      const expectedExpiration = Math.floor(nowMs / 1000) + 336 * 3600
       expect(dynamodb.putNewSession).toHaveBeenCalledWith(
         sessionId,
         expect.objectContaining({ expiration: expectedExpiration }),
@@ -60,8 +60,20 @@ describe('post-session', () => {
       expect(JSON.parse((result as { body: string }).body)).toEqual({ message: 'reCAPTCHA score too low' })
     })
 
+    it('should skip the reCAPTCHA check for an authenticated request', async () => {
+      const authedEvent = {
+        ...event,
+        headers: {},
+        requestContext: { ...event.requestContext, authorizer: { jwt: { claims: { sub: 'google-123' } } } },
+      } as unknown as APIGatewayProxyEventV2
+      const result = await postSession(authedEvent, () => nowMs)
+      expect(result).toEqual(expect.objectContaining(status.CREATED))
+      expect(JSON.parse((result as { body: string }).body)).toEqual({ sessionId })
+      expect(recaptcha.getCaptchaScore).not.toHaveBeenCalled()
+    })
+
     it('should return BAD_REQUEST when validation fails', async () => {
-      jest.mocked(events).parseNewPlanBody.mockImplementationOnce(() => {
+      jest.mocked(events).parseNewPollBody.mockImplementationOnce(() => {
         throw new ValidationError('name is required')
       })
       const result = await postSession(event, () => nowMs)
@@ -78,6 +90,34 @@ describe('post-session', () => {
         .mockRejectedValueOnce(new ConflictError('Session ID already exists'))
       const result = await postSession(event, () => nowMs)
       expect(result).toEqual(expect.objectContaining({ statusCode: status.INTERNAL_SERVER_ERROR.statusCode }))
+    })
+
+    it('should build a timed poll record including startMinute/endMinute/slotMinutes', async () => {
+      await postSession(event, () => nowMs)
+      expect(dynamodb.putNewSession).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({
+          usesTimes: true,
+          startMinute: newPollInput.startMinute,
+          endMinute: newPollInput.endMinute,
+          slotMinutes: newPollInput.slotMinutes,
+        }),
+      )
+    })
+
+    it('should build a dates-only poll record when usesTimes is false', async () => {
+      const datesOnlyInput = {
+        name: 'Trip planning',
+        dates: ['2025-09-04'],
+        usesTimes: false as const,
+        timezone: 'America/Chicago',
+      }
+      jest.mocked(events).parseNewPollBody.mockReturnValueOnce(datesOnlyInput)
+      await postSession(event, () => nowMs)
+      expect(dynamodb.putNewSession).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({ usesTimes: false, dates: ['2025-09-04'] }),
+      )
     })
   })
 })

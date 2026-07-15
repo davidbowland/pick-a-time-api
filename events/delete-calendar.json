@@ -1,0 +1,19 @@
+{
+  "pathParameters": {
+    "sessionId": "abc123",
+    "userId": "fuzzy-penguin"
+  },
+  "requestContext": {
+    "http": {
+      "method": "DELETE",
+      "path": "/v1/sessions/abc123/users/fuzzy-penguin/calendar"
+    },
+    "authorizer": {
+      "jwt": {
+        "claims": {
+          "sub": "google-sub-123"
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@ import { DynamoDB } from '@aws-sdk/client-dynamodb'
 import * as AWSXRay from 'aws-xray-sdk-core'
 import https from 'https'
 
-import { log, logError, logWarn, xrayCapture, xrayCaptureHttps } from '@utils/logging'
+import { log, logError, logWarn, sanitizeErrorForLogging, xrayCapture, xrayCaptureHttps } from '@utils/logging'
 
 jest.mock('aws-xray-sdk-core')
 
@@ -56,6 +56,42 @@ describe('logging', () => {
 
         await logWarn(message)
         expect(console.warn).toHaveBeenCalledWith(message)
+      },
+    )
+  })
+
+  describe('sanitizeErrorForLogging', () => {
+    it('should reduce an Axios-shaped error to message and status, dropping config entirely', () => {
+      const axiosError = {
+        message: 'Request failed with status code 400',
+        isAxiosError: true,
+        response: { status: 400, data: { error: 'invalid_grant' } },
+        config: {
+          params: { client_secret: 'shh-client-secret', refresh_token: 'shh-refresh-token', code: 'shh-auth-code' },
+          headers: { Authorization: 'Bearer shh-access-token' },
+        },
+      }
+
+      const result = sanitizeErrorForLogging(axiosError)
+
+      expect(result).toEqual({ message: axiosError.message, status: 400 })
+      const serialized = JSON.stringify(result)
+      expect(serialized).not.toContain('config')
+      expect(serialized).not.toContain('shh-client-secret')
+      expect(serialized).not.toContain('shh-refresh-token')
+      expect(serialized).not.toContain('shh-auth-code')
+      expect(serialized).not.toContain('shh-access-token')
+    })
+
+    it('should pass through a plain Error as just its message', () => {
+      const error = new Error('plain failure')
+      expect(sanitizeErrorForLogging(error)).toBe('plain failure')
+    })
+
+    it.each(['a string error', 0, null, undefined, { a: 1, b: 2 }])(
+      'should pass through a non-Error value %s unchanged',
+      (value) => {
+        expect(sanitizeErrorForLogging(value)).toEqual(value)
       },
     )
   })

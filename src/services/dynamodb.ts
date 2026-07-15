@@ -1,5 +1,6 @@
 import {
   ConditionalCheckFailedException,
+  DeleteItemCommand,
   DynamoDB,
   GetItemCommand,
   PutItemCommand,
@@ -11,12 +12,12 @@ import {
 
 import { dynamodbTableName } from '../config'
 import { ConflictError, NotFoundError } from '../errors'
-import { AvailabilityRecord, PlanRecord, SessionWithUsers, UserRecord } from '../types'
+import { AvailabilityRecord, CalendarAccountRecord, PollRecord, SessionWithUsers, UserRecord } from '../types'
 import { xrayCapture } from '../utils/logging'
 
 const dynamodb = xrayCapture(new DynamoDB({ apiVersion: '2012-08-10' }))
 
-/* Session (Plan) */
+/* Session (Poll) */
 
 export const getSession = async (sessionId: string): Promise<SessionWithUsers> => {
   const command = new GetItemCommand({
@@ -27,12 +28,12 @@ export const getSession = async (sessionId: string): Promise<SessionWithUsers> =
   if (!response.Item?.Data?.S) {
     throw new NotFoundError('Session not found')
   }
-  const session: PlanRecord = JSON.parse(response.Item.Data.S)
+  const session: PollRecord = JSON.parse(response.Item.Data.S)
   const users = response.Item.users?.L?.map((item: { S: string }) => item.S) ?? []
   return { session, users }
 }
 
-export const putNewSession = async (sessionId: string, session: PlanRecord): Promise<void> => {
+export const putNewSession = async (sessionId: string, session: PollRecord): Promise<void> => {
   const command = new PutItemCommand({
     ConditionExpression: 'attribute_not_exists(PK)',
     Item: {
@@ -101,6 +102,19 @@ export const updateAvailability = async (
     UpdateExpression: 'SET #data = :data',
   })
   await dynamodb.send(command)
+}
+
+export const getAllAvailability = async (sessionId: string): Promise<AvailabilityRecord[]> => {
+  const command = new QueryCommand({
+    ExpressionAttributeValues: {
+      ':pk': { S: sessionId },
+      ':skPrefix': { S: 'AVAIL#' },
+    },
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+    TableName: dynamodbTableName,
+  })
+  const response = await dynamodb.send(command)
+  return (response.Items ?? []).map((item: { Data: { S: string } }) => JSON.parse(item.Data.S))
 }
 
 /* Users */
@@ -203,6 +217,41 @@ export const updateUser = async (sessionId: string, userId: string, user: UserRe
     },
     TableName: dynamodbTableName,
     UpdateExpression: 'SET #data = :data',
+  })
+  await dynamodb.send(command)
+}
+
+/* Calendar */
+
+export const getCalendarAccount = async (googleSub: string): Promise<CalendarAccountRecord | null> => {
+  const command = new GetItemCommand({
+    Key: { PK: { S: `google#${googleSub}` }, SK: { S: 'CALENDAR' } },
+    TableName: dynamodbTableName,
+  })
+  const response = await dynamodb.send(command)
+  if (!response.Item?.Data?.S) {
+    return null
+  }
+  return JSON.parse(response.Item.Data.S)
+}
+
+export const putCalendarAccount = async (record: CalendarAccountRecord): Promise<void> => {
+  const command = new PutItemCommand({
+    Item: {
+      Data: { S: JSON.stringify(record) },
+      expiration: { N: `${record.expiration}` },
+      PK: { S: `google#${record.googleSub}` },
+      SK: { S: 'CALENDAR' },
+    },
+    TableName: dynamodbTableName,
+  })
+  await dynamodb.send(command)
+}
+
+export const deleteCalendarAccount = async (googleSub: string): Promise<void> => {
+  const command = new DeleteItemCommand({
+    Key: { PK: { S: `google#${googleSub}` }, SK: { S: 'CALENDAR' } },
+    TableName: dynamodbTableName,
   })
   await dynamodb.send(command)
 }
