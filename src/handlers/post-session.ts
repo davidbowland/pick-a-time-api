@@ -23,6 +23,7 @@ const buildPoll = (sessionId: string, input: NewPollInput, expiration: number): 
       slotMinutes: input.slotMinutes,
       timezone: input.timezone,
       expiration,
+      ...(input.overrides !== undefined && { overrides: input.overrides }),
     }
     : {
       sessionId,

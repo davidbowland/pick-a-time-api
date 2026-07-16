@@ -145,6 +145,77 @@ describe('events', () => {
         parseNewPollBody(bodyEvent({ ...newPollInput, endMinute: newPollInput.startMinute + 30 }), now),
       ).toThrow(ValidationError)
     })
+
+    it('should accept valid overrides and return their dates sorted', () => {
+      const withOverrides = {
+        ...newPollInput,
+        overrides: [{ dates: ['2025-09-06', '2025-09-05'], startMinute: 600, endMinute: 720 }],
+      }
+      const result = parseNewPollBody(bodyEvent(withOverrides), now)
+      expect(result).toMatchObject({
+        overrides: [{ dates: ['2025-09-05', '2025-09-06'], startMinute: 600, endMinute: 720 }],
+      })
+    })
+
+    it('should omit overrides from the result when not provided', () => {
+      expect(parseNewPollBody(bodyEvent(newPollInput), now)).not.toHaveProperty('overrides')
+    })
+
+    it('should throw when overrides is an empty array', () => {
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, overrides: [] }), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when overrides exceeds maxPollOverrideGroups', () => {
+      const tooMany = Array.from({ length: 11 }, (_, i) => ({
+        dates: [newPollInput.dates[0]],
+        startMinute: 600,
+        endMinute: 720 + i,
+      }))
+      expect(() => parseNewPollBody(bodyEvent({ ...newPollInput, overrides: tooMany }), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when an override date is not among the poll dates', () => {
+      const bad = { ...newPollInput, overrides: [{ dates: ['2025-09-07'], startMinute: 600, endMinute: 720 }] }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when two override groups share a date', () => {
+      const bad = {
+        ...newPollInput,
+        overrides: [
+          { dates: ['2025-09-05'], startMinute: 600, endMinute: 720 },
+          { dates: ['2025-09-05', '2025-09-06'], startMinute: 780, endMinute: 900 },
+        ],
+      }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when an override startMinute is not a multiple of 15', () => {
+      const bad = { ...newPollInput, overrides: [{ dates: ['2025-09-05'], startMinute: 601, endMinute: 720 }] }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when an override endMinute is not after its startMinute', () => {
+      const bad = { ...newPollInput, overrides: [{ dates: ['2025-09-05'], startMinute: 600, endMinute: 600 }] }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when an override window is narrower than slotMinutes', () => {
+      // newPollInput.slotMinutes is 60; this override window is only 30 minutes wide.
+      const bad = { ...newPollInput, overrides: [{ dates: ['2025-09-05'], startMinute: 600, endMinute: 630 }] }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
+
+    it('should throw when overrides is present but usesTimes is false', () => {
+      const bad = {
+        name: 'x',
+        dates: ['2025-09-04'],
+        usesTimes: false,
+        timezone: 'America/Chicago',
+        overrides: [{ dates: ['2025-09-04'], startMinute: 600, endMinute: 720 }],
+      }
+      expect(() => parseNewPollBody(bodyEvent(bad), now)).toThrow(ValidationError)
+    })
   })
 
   describe('parseUserPatch', () => {

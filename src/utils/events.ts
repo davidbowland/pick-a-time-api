@@ -3,6 +3,7 @@ import {
   defaultSlotMinutes,
   maxPollDateRangeDays,
   maxPollDates,
+  maxPollOverrideGroups,
   participantNameMaxLength,
   pollNameMaxLength,
   startEndMinuteStep,
@@ -91,8 +92,15 @@ export const parseNewPollBody = (event: APIGatewayProxyEventV2, now = Date.now):
   }
 
   if (!body.usesTimes) {
-    if (body.startMinute !== undefined || body.endMinute !== undefined || body.slotMinutes !== undefined) {
-      throw new ValidationError('startMinute, endMinute, and slotMinutes must be omitted when usesTimes is false')
+    if (
+      body.startMinute !== undefined ||
+      body.endMinute !== undefined ||
+      body.slotMinutes !== undefined ||
+      body.overrides !== undefined
+    ) {
+      throw new ValidationError(
+        'startMinute, endMinute, slotMinutes, and overrides must be omitted when usesTimes is false',
+      )
     }
     return { name: body.name.trim(), dates, usesTimes: false, timezone: body.timezone }
   }
@@ -128,6 +136,66 @@ export const parseNewPollBody = (event: APIGatewayProxyEventV2, now = Date.now):
     throw new ValidationError(`the time window must be at least ${slotMinutes} minutes wide`)
   }
 
+  const dateSet = new Set(dates)
+  let overrides: { dates: string[]; startMinute: number; endMinute: number }[] | undefined
+
+  if (body.overrides !== undefined) {
+    if (!Array.isArray(body.overrides) || body.overrides.length === 0) {
+      throw new ValidationError('overrides must be a non-empty array when present')
+    }
+    if (body.overrides.length > maxPollOverrideGroups) {
+      throw new ValidationError(`overrides must contain at most ${maxPollOverrideGroups} entries`)
+    }
+
+    const seenDates = new Set<string>()
+    overrides = body.overrides.map((entry: unknown, index: number) => {
+      const o = entry as Record<string, unknown>
+
+      if (!isValidDatesArray(o.dates)) {
+        throw new ValidationError(
+          `overrides[${index}].dates must be a non-empty array of unique valid ISO date strings`,
+        )
+      }
+      for (const date of o.dates) {
+        if (!dateSet.has(date)) {
+          throw new ValidationError(`overrides[${index}].dates must be a subset of the poll's own dates`)
+        }
+        if (seenDates.has(date)) {
+          throw new ValidationError(`overrides[${index}].dates must not overlap with another override group`)
+        }
+        seenDates.add(date)
+      }
+
+      if (
+        typeof o.startMinute !== 'number' ||
+        !Number.isInteger(o.startMinute) ||
+        o.startMinute < 0 ||
+        o.startMinute > 1425 ||
+        o.startMinute % startEndMinuteStep !== 0
+      ) {
+        throw new ValidationError(
+          `overrides[${index}].startMinute must be a multiple of ${startEndMinuteStep} between 0 and 1425`,
+        )
+      }
+      if (
+        typeof o.endMinute !== 'number' ||
+        !Number.isInteger(o.endMinute) ||
+        o.endMinute <= o.startMinute ||
+        o.endMinute > 1440 ||
+        o.endMinute % startEndMinuteStep !== 0
+      ) {
+        throw new ValidationError(
+          `overrides[${index}].endMinute must be a multiple of ${startEndMinuteStep}, greater than startMinute, and at most 1440`,
+        )
+      }
+      if (o.endMinute - o.startMinute < slotMinutes) {
+        throw new ValidationError(`overrides[${index}] time window must be at least ${slotMinutes} minutes wide`)
+      }
+
+      return { dates: [...o.dates].sort(), startMinute: o.startMinute, endMinute: o.endMinute }
+    })
+  }
+
   return {
     name: body.name.trim(),
     dates,
@@ -136,6 +204,7 @@ export const parseNewPollBody = (event: APIGatewayProxyEventV2, now = Date.now):
     endMinute: body.endMinute,
     slotMinutes: slotMinutes as 15 | 30 | 60 | 90 | 120,
     timezone: body.timezone,
+    ...(overrides !== undefined && { overrides }),
   }
 }
 

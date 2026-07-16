@@ -105,6 +105,25 @@ describe('post-session', () => {
       )
     })
 
+    it('should persist overrides on the poll record when present', async () => {
+      const inputWithOverrides = {
+        ...newPollInput,
+        overrides: [{ dates: [newPollInput.dates[0]], startMinute: 600, endMinute: 720 }],
+      }
+      jest.mocked(events).parseNewPollBody.mockReturnValueOnce(inputWithOverrides)
+      await postSession(event, () => nowMs)
+      expect(dynamodb.putNewSession).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({ overrides: inputWithOverrides.overrides }),
+      )
+    })
+
+    it('should not include an overrides key on the poll record when not provided', async () => {
+      await postSession(event, () => nowMs)
+      const [, record] = jest.mocked(dynamodb).putNewSession.mock.calls[0]
+      expect(record).not.toHaveProperty('overrides')
+    })
+
     it('should build a dates-only poll record when usesTimes is false', async () => {
       const datesOnlyInput = {
         name: 'Trip planning',

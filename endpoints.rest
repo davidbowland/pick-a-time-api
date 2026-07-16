@@ -19,6 +19,7 @@ GET {{host}}/config
 #   "defaultSlotMinutes": 60,
 #   "startEndMinuteStep": 15,
 #   "maxPollDateRangeDays": 365,
+#   "maxPollOverrideGroups": 10,
 #   "maxUsersPerSession": 20,
 #   "sessionExpireHours": 336
 # }
@@ -41,6 +42,13 @@ GET {{host}}/config
 #   slotMinutes (one of 15/30/60/90/120, default 60) is the length of each candidate meeting slot. Slot
 #   start times slide across the window stepped by 30 minutes (15 minutes only when slotMinutes is 15) --
 #   slots overlap rather than partition the range.
+#
+# overrides (optional, usesTimes: true only) lets specific dates use a different startMinute/endMinute
+# than the poll's default window -- e.g. a shorter window on weekends. Each entry is a non-empty subset
+# of this poll's own dates plus its own startMinute/endMinute (same validation rules as the top-level
+# fields); slotMinutes is not overridable, it's always the one poll-level value. A date not covered by
+# any override uses the poll's default window. No date may appear in more than one override group, and
+# at most maxPollOverrideGroups (see GET /config) groups are allowed.
 
 POST {{host}}/sessions
 Content-Type: application/json
@@ -53,6 +61,7 @@ x-recaptcha-token: test-token
   "startMinute": 960,
   "endMinute": 1080,
   "slotMinutes": 60,
+  "overrides": [{ "dates": ["2025-09-06"], "startMinute": 600, "endMinute": 840 }],
   "timezone": "America/Chicago"
 }
 
@@ -65,9 +74,11 @@ x-recaptcha-token: test-token
 ###
 
 ### Get poll by ID
-# slots is the server-generated Slot[] for this poll (same buildSlots output used internally for the
-# overlap grid) -- the frontend renders grid/results columns from this instead of reimplementing slot
-# generation. Always a single 0-1440 slot for usesTimes: false polls.
+# slots is the server-generated Slot[][] for this poll (one slot array per date, in the same order as
+# `dates`, from the same buildSlots output used internally for the overlap grid) -- the frontend renders
+# grid/results columns from slots[dateIndex] instead of reimplementing slot generation. A date covered by
+# an overrides group uses that group's window; every other date uses the poll's default window. Always a
+# single 0-1440 slot per date for usesTimes: false polls.
 GET {{host}}/sessions/{{sessionId}}
 
 # Response 200:
@@ -79,13 +90,30 @@ GET {{host}}/sessions/{{sessionId}}
 #   "startMinute": 960,
 #   "endMinute": 1080,
 #   "slotMinutes": 60,
+#   "overrides": [{ "dates": ["2025-09-06"], "startMinute": 600, "endMinute": 840 }],
 #   "timezone": "America/Chicago",
 #   "expiration": 1725453600,
 #   "participantCount": 2,
 #   "slots": [
-#     { "slotIndex": 0, "startMinute": 960, "endMinute": 1020 },
-#     { "slotIndex": 1, "startMinute": 990, "endMinute": 1050 },
-#     { "slotIndex": 2, "startMinute": 1020, "endMinute": 1080 }
+#     [
+#       { "slotIndex": 0, "startMinute": 960, "endMinute": 1020 },
+#       { "slotIndex": 1, "startMinute": 990, "endMinute": 1050 },
+#       { "slotIndex": 2, "startMinute": 1020, "endMinute": 1080 }
+#     ],
+#     [
+#       { "slotIndex": 0, "startMinute": 960, "endMinute": 1020 },
+#       { "slotIndex": 1, "startMinute": 990, "endMinute": 1050 },
+#       { "slotIndex": 2, "startMinute": 1020, "endMinute": 1080 }
+#     ],
+#     [
+#       { "slotIndex": 0, "startMinute": 600, "endMinute": 660 },
+#       { "slotIndex": 1, "startMinute": 630, "endMinute": 690 },
+#       { "slotIndex": 2, "startMinute": 660, "endMinute": 720 },
+#       { "slotIndex": 3, "startMinute": 690, "endMinute": 750 },
+#       { "slotIndex": 4, "startMinute": 720, "endMinute": 780 },
+#       { "slotIndex": 5, "startMinute": 750, "endMinute": 810 },
+#       { "slotIndex": 6, "startMinute": 780, "endMinute": 840 }
+#     ]
 #   ]
 # }
 #
@@ -160,8 +188,11 @@ Content-Type: application/json
 ###
 
 ### Get availability
-# free is a flat grid keyed [dateIndex][slotIndex] -- slotIndex is always 0 when the poll's usesTimes is
-# false. There is no recurring pattern or per-week override concept; every date/slot is independent.
+# free is keyed [dateIndex][slotIndex] -- slotIndex is always 0 when the poll's usesTimes is false.
+# Each date's row length matches slots[dateIndex] from GET /sessions/{sessionId} (see that endpoint):
+# a date covered by a time-window override can have a different number of slots than other dates in
+# the same poll, so free's rows are not guaranteed uniform width. There is no recurring pattern
+# concept beyond overrides; every date/slot is otherwise independent.
 GET {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 
 # Response 200:
@@ -181,6 +212,9 @@ GET {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 
 ### Set availability
 # cells: array of { dateIndex, slotIndex, value }. slotIndex is always 0 when the poll's usesTimes is false.
+# Valid slotIndex range depends on the target date: derive it from slots[dateIndex].length (GET
+# /sessions/{sessionId}), not a single shared count -- an out-of-range slotIndex for that date's own
+# window returns 400 even if it would be in range for a different date in the same poll.
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 Content-Type: application/json
 
@@ -199,6 +233,12 @@ Content-Type: application/json
 # recommendedMeetings factors in connected Google Calendar busy time for each user in addition to their
 # marked availability. Each entry lists excludedByCalendar: userIds who marked themselves free for that
 # slot but were excluded because their calendar shows a conflict.
+#
+# grid.cells is per-date (cells[dateIndex]), same order as the poll's dates -- and, like
+# GET /sessions/{sessionId}'s slots, each date's row can be a different length when the poll has
+# overrides (a date covered by an override group has as many cells as that group's window produces,
+# not necessarily the same count as other dates). Each cell is self-describing (dateIndex, slotIndex,
+# startMinute, endMinute), so iterate cells[dateIndex] directly rather than assuming a uniform width.
 
 GET {{host}}/sessions/{{sessionId}}/overlap
 

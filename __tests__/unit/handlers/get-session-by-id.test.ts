@@ -21,14 +21,26 @@ describe('get-session-by-id', () => {
       ...futureSession,
       participantCount: 2,
       slots: [
-        { slotIndex: 0, startMinute: 960, endMinute: 1020 },
-        { slotIndex: 1, startMinute: 990, endMinute: 1050 },
-        { slotIndex: 2, startMinute: 1020, endMinute: 1080 },
+        [
+          { slotIndex: 0, startMinute: 960, endMinute: 1020 },
+          { slotIndex: 1, startMinute: 990, endMinute: 1050 },
+          { slotIndex: 2, startMinute: 1020, endMinute: 1080 },
+        ],
+        [
+          { slotIndex: 0, startMinute: 960, endMinute: 1020 },
+          { slotIndex: 1, startMinute: 990, endMinute: 1050 },
+          { slotIndex: 2, startMinute: 1020, endMinute: 1080 },
+        ],
+        [
+          { slotIndex: 0, startMinute: 960, endMinute: 1020 },
+          { slotIndex: 1, startMinute: 990, endMinute: 1050 },
+          { slotIndex: 2, startMinute: 1020, endMinute: 1080 },
+        ],
       ],
     })
   })
 
-  it('should return a single all-day slot for dates-only polls', async () => {
+  it('should return a single all-day slot per date for dates-only polls', async () => {
     const datesOnlySession = {
       sessionId: 'abc123',
       name: 'Trip',
@@ -40,7 +52,10 @@ describe('get-session-by-id', () => {
     jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: datesOnlySession, users: [] })
     const result = await handler(event)
     const body = JSON.parse((result as { body: string }).body)
-    expect(body.slots).toEqual([{ slotIndex: 0, startMinute: 0, endMinute: 1440 }])
+    expect(body.slots).toEqual([
+      [{ slotIndex: 0, startMinute: 0, endMinute: 1440 }],
+      [{ slotIndex: 0, startMinute: 0, endMinute: 1440 }],
+    ])
   })
 
   it('should return NOT_FOUND when session is expired', async () => {

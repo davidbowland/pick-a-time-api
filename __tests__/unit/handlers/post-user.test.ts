@@ -66,6 +66,22 @@ describe('post-user', () => {
       )
     })
 
+    it('should create a ragged availability grid when the poll has a per-date override', async () => {
+      const overrideSession = {
+        ...futureSession,
+        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }], // Saturday: single 60-min slot
+      }
+      jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: overrideSession, users: [] })
+      await handler(event)
+      expect(dynamodb.createUser).toHaveBeenCalledWith(
+        sessionId,
+        expect.anything(),
+        expect.objectContaining({
+          free: [[false, false, false], [false, false, false], [false]],
+        }),
+      )
+    })
+
     it('should set name from Google auth context when authenticated', async () => {
       const authedEvent = {
         ...event,

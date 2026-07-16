@@ -71,6 +71,17 @@ describe('overlap', () => {
       // Tokyo's slots step every 30 min from 00:00 -- slotIndex 12 is exactly [06:00, 07:00).
       expect(tokyoGrid[1][12]).toBe(true)
     })
+
+    it("should size an overridden date's slot row independently from the poll's default window", () => {
+      const pollWithOverride: PollRecord = {
+        ...session,
+        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }], // Saturday: single 60-min slot
+      }
+      const grid = buildBusyGrid(pollWithOverride, [])
+      expect(grid[0]).toHaveLength(3) // 2025-09-04, default window -> 3 overlapping slots
+      expect(grid[1]).toHaveLength(3) // 2025-09-05, default window
+      expect(grid[2]).toHaveLength(1) // 2025-09-06, override window -> exactly 1 slot
+    })
   })
 
   describe('computeGrid', () => {
@@ -155,6 +166,16 @@ describe('overlap', () => {
       const grid = computeGrid(session, [availabilityRecord], busyGrids)
       expect(grid.cells[2][0].freeCount).toBe(0) // was free per the raw grid, now calendar-busy
       expect(grid.cells[2][1].freeCount).toBe(1) // unaffected
+    })
+
+    it('should size each date row of cells independently when the poll has an override', () => {
+      const pollWithOverride: PollRecord = {
+        ...session,
+        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }],
+      }
+      const grid = computeGrid(pollWithOverride, [availabilityRecord])
+      expect(grid.cells[0]).toHaveLength(3)
+      expect(grid.cells[2]).toHaveLength(1)
     })
   })
 
@@ -341,6 +362,26 @@ describe('overlap', () => {
           excludedByCalendar: ['solo'],
         },
       ])
+    })
+
+    it('should respect a narrower override window when building candidates for that date', () => {
+      const pollWithOverride: PollRecord = {
+        ...session,
+        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }],
+      }
+      const allFree: AvailabilityRecord = {
+        userId: 'solo',
+        free: [
+          [true, true, true],
+          [true, true, true],
+          [true, true, true],
+        ],
+        expiration: availabilityRecord.expiration,
+      }
+      const result = findRecommendedMeetings(pollWithOverride, [allFree], 10)
+      const saturdayCandidates = result.filter((m) => m.dateIndex === 2)
+      expect(saturdayCandidates).toHaveLength(1)
+      expect(saturdayCandidates[0].slotIndex).toBe(0)
     })
   })
 })

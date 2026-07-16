@@ -81,6 +81,18 @@ describe('patch-availability', () => {
     expect(result).toEqual(expect.objectContaining({ statusCode: 400 }))
   })
 
+  it('should return BAD_REQUEST for a slotIndex valid on one date but out of bounds on a narrower-override date', async () => {
+    const overrideSession = {
+      ...futureSession,
+      overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }], // Saturday: 1 slot only
+    }
+    jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: overrideSession, users: [userId] })
+    // slotIndex 1 is valid on dateIndex 0/1 (3 slots each) but out of bounds on dateIndex 2 (1 slot)
+    const event = withBody({ cells: [{ dateIndex: 2, slotIndex: 1, value: true }] })
+    const result = await handler(event)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 400 }))
+  })
+
   it('should return NOT_FOUND when availability does not exist', async () => {
     jest.mocked(dynamodb).getAvailability.mockRejectedValueOnce(new NotFoundError('Availability not found'))
     const event = withBody({ cells: [{ dateIndex: 0, slotIndex: 0, value: true }] })

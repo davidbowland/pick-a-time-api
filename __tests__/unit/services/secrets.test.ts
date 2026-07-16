@@ -73,7 +73,7 @@ describe('secrets', () => {
       const result = await getGoogleCalendarClientId(() => 0)
       expect(result).toBe('calendar-client-id')
       expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({ Name: '/pick-a-time/google-calendar-client-id', WithDecryption: true }),
+        expect.objectContaining({ Name: '/pick-a-time/google-client-id', WithDecryption: true }),
       )
     })
   })
@@ -84,7 +84,7 @@ describe('secrets', () => {
       const result = await getGoogleCalendarClientSecret(() => 0)
       expect(result).toBe('calendar-client-secret')
       expect(mockSend).toHaveBeenCalledWith(
-        expect.objectContaining({ Name: '/pick-a-time/google-calendar-client-secret', WithDecryption: true }),
+        expect.objectContaining({ Name: '/pick-a-time/google-client-secret', WithDecryption: true }),
       )
     })
   })

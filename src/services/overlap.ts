@@ -49,9 +49,9 @@ export const buildBusyGrid = (poll: PollRecord, busyIntervals: { start: string; 
     else blocksByDate.set(block.date, [block])
   }
 
-  return poll.dates.map((date) => {
+  return poll.dates.map((date, dateIndex) => {
     const blocks = blocksByDate.get(date) ?? []
-    return slots.map((slot) => isSlotBusy(poll, blocks, slot))
+    return slots[dateIndex].map((slot) => isSlotBusy(poll, blocks, slot))
   })
 }
 
@@ -80,7 +80,7 @@ export const computeGrid = (
   const slots = buildSlots(poll)
 
   const cells: OverlapCell[][] = poll.dates.map((_, dateIndex) =>
-    slots.map((slot) => {
+    slots[dateIndex].map((slot) => {
       const freeUserIds = availability
         .filter((a) => a.free[dateIndex][slot.slotIndex] && !isBusyAt(busyGrids, a.userId, dateIndex, slot.slotIndex))
         .map((a) => a.userId)
@@ -97,7 +97,7 @@ export const computeGrid = (
 
   let bestSlot = { dateIndex: 0, slotIndex: 0, freeCount: -1 }
   for (let dateIndex = 0; dateIndex < poll.dates.length; dateIndex++) {
-    for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+    for (let slotIndex = 0; slotIndex < slots[dateIndex].length; slotIndex++) {
       const freeCount = cells[dateIndex][slotIndex].freeCount
       if (freeCount > bestSlot.freeCount) {
         bestSlot = { dateIndex, slotIndex, freeCount }
@@ -156,7 +156,7 @@ export const findRecommendedMeetings = (
 
   const candidates: Candidate[] = poll.dates
     .flatMap((date, dateIndex) =>
-      slots.map((slot) => {
+      slots[dateIndex].map((slot) => {
         const freeUserIds = availability
           .filter((a) => a.free[dateIndex][slot.slotIndex] && !isBusyAt(busyGrids, a.userId, dateIndex, slot.slotIndex))
           .map((a) => a.userId)

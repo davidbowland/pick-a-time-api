@@ -23,6 +23,7 @@ export const allowedSlotMinutes = [15, 30, 60, 90, 120]
 export const defaultSlotMinutes = 60
 export const startEndMinuteStep = 15
 export const maxPollDateRangeDays = 365 // the exact max offset (in days, inclusive) from today a poll date may be -- single source of truth for both the events.ts validation and this disclosed value
+export const maxPollOverrideGroups = 10 // max entries in a TimedPoll's overrides array
 
 // reCAPTCHA
 
@@ -30,8 +31,8 @@ export const recaptchaSecretKeyParamName = '/pick-a-time/recaptcha-secret-key'
 
 // Calendar sync
 
-export const googleCalendarClientIdParamName = '/pick-a-time/google-calendar-client-id'
-export const googleCalendarClientSecretParamName = '/pick-a-time/google-calendar-client-secret'
+export const googleCalendarClientIdParamName = '/pick-a-time/google-client-id'
+export const googleCalendarClientSecretParamName = '/pick-a-time/google-client-secret'
 export const oauthStateSecretParamName = '/pick-a-time/oauth-state-secret'
 export const kmsCalendarKeyId = process.env.KMS_CALENDAR_KEY_ID as string
 export const googleCalendarRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI as string

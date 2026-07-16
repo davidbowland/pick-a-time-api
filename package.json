@@ -26,10 +26,10 @@
     "update": "ncu --doctor --target minor --upgrade && npm audit fix --audit-level=none && npm run test && npm dedupe"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1087.0",
-    "@aws-sdk/client-kms": "^3.1087.0",
-    "@aws-sdk/client-lambda": "^3.1087.0",
-    "@aws-sdk/client-ssm": "^3.1087.0",
+    "@aws-sdk/client-dynamodb": "^3.1089.0",
+    "@aws-sdk/client-kms": "^3.1089.0",
+    "@aws-sdk/client-lambda": "^3.1089.0",
+    "@aws-sdk/client-ssm": "^3.1089.0",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@googlemaps/places": "^2.5.0",
     "ajv": "^8.20.0",

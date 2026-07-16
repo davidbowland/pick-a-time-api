@@ -18,10 +18,10 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     assertSessionActive(session)
 
     const dateCount = session.dates.length
-    const slotCount = buildSlots(session).length
+    const slots = buildSlots(session)
     for (const cell of input.cells) {
-      if (cell.dateIndex >= dateCount || cell.slotIndex >= slotCount) {
-        throw new ValidationError(`cell is out of bounds for a ${dateCount}x${slotCount} grid`)
+      if (cell.dateIndex >= dateCount || cell.slotIndex >= slots[cell.dateIndex].length) {
+        throw new ValidationError(`cell is out of bounds for date ${cell.dateIndex}`)
       }
     }
 

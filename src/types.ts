@@ -17,6 +17,11 @@ export interface TimedPoll {
   startMinute: number // minutes since local midnight; multiple of 15; 0-1425
   endMinute: number // minutes since local midnight; multiple of 15; > startMinute, <= 1440
   slotMinutes: 15 | 30 | 60 | 90 | 120
+  overrides?: {
+    dates: string[] // non-empty subset of the poll's own `dates`; no date appears in more than one group
+    startMinute: number
+    endMinute: number
+  }[]
 }
 
 export type PollRecord = (DatesOnlyPoll | TimedPoll) & {

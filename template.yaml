@@ -740,8 +740,8 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-secret'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
             - Effect: Allow
               Action:
                 - kms:Decrypt
@@ -865,7 +865,7 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
             - Effect: Allow
               Action:
@@ -933,8 +933,8 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-calendar-client-secret'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
             - Effect: Allow
               Action:

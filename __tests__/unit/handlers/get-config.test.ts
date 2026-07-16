@@ -18,6 +18,7 @@ describe('get-config', () => {
       defaultSlotMinutes: 60,
       startEndMinuteStep: 15,
       maxPollDateRangeDays: 365,
+      maxPollOverrideGroups: 10,
       maxUsersPerSession: 10,
       sessionExpireHours: 336,
     })
