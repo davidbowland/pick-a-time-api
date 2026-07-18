@@ -7,7 +7,12 @@ import * as dynamodb from '@services/dynamodb'
 import { APIGatewayProxyEventV2 } from '@types'
 
 jest.mock('@services/dynamodb')
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('patch-user', () => {
   const event = {

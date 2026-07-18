@@ -11,11 +11,11 @@ import {
   startEndMinuteStep,
 } from '../config'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
-import { log } from '../utils/logging'
+import { log, redactEvent } from '../utils/logging'
 import status from '../utils/status'
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', { ...event, body: undefined })
+  log('Received event', redactEvent(event))
   return {
     ...status.OK,
     body: JSON.stringify({

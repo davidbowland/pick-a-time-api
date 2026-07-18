@@ -5,7 +5,7 @@ import { signCalendarState } from '../services/oauth-state'
 import { getGoogleCalendarClientId } from '../services/secrets'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { extractAuthContext } from '../utils/auth'
-import { log, logError } from '../utils/logging'
+import { log, logError, redactEvent } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
 import status from '../utils/status'
 
@@ -13,7 +13,7 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.freebusy'
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', { ...event, body: undefined })
+  log('Received event', redactEvent(event))
   try {
     const sessionId = event.pathParameters?.sessionId as string
     const userId = event.pathParameters?.userId as string

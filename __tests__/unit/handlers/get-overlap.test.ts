@@ -10,7 +10,12 @@ import * as logging from '@utils/logging'
 
 jest.mock('@services/dynamodb')
 jest.mock('@services/calendar-sync')
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('get-overlap', () => {
   const baseEvent = eventJson as unknown as APIGatewayProxyEventV2

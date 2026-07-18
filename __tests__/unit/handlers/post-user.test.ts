@@ -9,7 +9,12 @@ import * as idGenerator from '@utils/id-generator'
 
 jest.mock('@services/dynamodb')
 jest.mock('@utils/id-generator')
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('post-user', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2

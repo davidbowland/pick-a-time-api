@@ -2,7 +2,12 @@ import eventJson from '@events/get-config.json'
 import { handler } from '@handlers/get-config'
 import { APIGatewayProxyEventV2 } from '@types'
 
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('get-config', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2

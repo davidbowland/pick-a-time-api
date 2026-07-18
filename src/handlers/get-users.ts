@@ -1,7 +1,7 @@
 import { NotFoundError } from '../errors'
 import { getAllUsers, getCalendarAccount, getSession } from '../services/dynamodb'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
-import { log, logError } from '../utils/logging'
+import { log, logError, redactEvent } from '../utils/logging'
 import status from '../utils/status'
 import { stripGoogleSub } from '../utils/users'
 
@@ -23,7 +23,7 @@ const resolveCalendarStatus = async (googleSub: string | null): Promise<Calendar
 }
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', { ...event, body: undefined })
+  log('Received event', redactEvent(event))
   try {
     const sessionId = event.pathParameters?.sessionId as string
     const sessionRecord = await getSession(sessionId)

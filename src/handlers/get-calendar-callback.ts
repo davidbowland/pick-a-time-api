@@ -4,7 +4,7 @@ import { exchangeCodeForTokens } from '../services/google-calendar'
 import { encryptRefreshToken } from '../services/kms'
 import { verifyCalendarState } from '../services/oauth-state'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, CalendarAccountRecord } from '../types'
-import { log, logError, sanitizeErrorForLogging } from '../utils/logging'
+import { log, logError, redactEvent, sanitizeErrorForLogging } from '../utils/logging'
 
 const CALENDAR_ACCOUNT_TTL_SECONDS = 90 * 24 * 3600 // refreshed on every successful sync
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.freebusy'
@@ -16,12 +16,7 @@ const redirectTo = (status: 'connected' | 'declined' | 'error'): APIGatewayProxy
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
   const query = event.queryStringParameters ?? {}
-  const redactedQuery = {
-    ...query,
-    ...(query.code ? { code: '[REDACTED]' } : {}),
-    ...(query.state ? { state: '[REDACTED]' } : {}),
-  }
-  log('Received event', { ...event, body: undefined, queryStringParameters: redactedQuery })
+  log('Received event', redactEvent(event))
 
   if (query.error) {
     return redirectTo('declined')

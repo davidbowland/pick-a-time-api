@@ -17,7 +17,12 @@ jest.mock('@utils/events', () => ({
   ...jest.requireActual('@utils/events'),
   parseNewPollBody: jest.fn(),
 }))
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('post-session', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2

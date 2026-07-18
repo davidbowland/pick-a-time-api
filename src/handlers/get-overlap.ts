@@ -3,12 +3,12 @@ import { syncCalendarAccountForPoll } from '../services/calendar-sync'
 import { getAllAvailability, getAllUsers, getCalendarAccount, getSession } from '../services/dynamodb'
 import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '../services/overlap'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
-import { log, logError } from '../utils/logging'
+import { log, logError, redactEvent } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
 import status from '../utils/status'
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', { ...event, body: undefined })
+  log('Received event', redactEvent(event))
   try {
     const sessionId = event.pathParameters?.sessionId as string
 

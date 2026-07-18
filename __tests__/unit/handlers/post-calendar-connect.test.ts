@@ -11,7 +11,12 @@ import { APIGatewayProxyEventV2 } from '@types'
 jest.mock('@services/dynamodb')
 jest.mock('@services/oauth-state')
 jest.mock('@services/secrets')
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 describe('post-calendar-connect', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2

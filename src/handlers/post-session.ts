@@ -6,7 +6,7 @@ import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, NewPollInput, PollReco
 import { extractAuthContext } from '../utils/auth'
 import { extractRecaptchaToken, parseNewPollBody } from '../utils/events'
 import { generateSessionId } from '../utils/id-generator'
-import { log, logError } from '../utils/logging'
+import { log, logError, redactEvent } from '../utils/logging'
 import status from '../utils/status'
 
 const MAX_ID_RETRIES = 5
@@ -56,7 +56,7 @@ export const postSession = async (
   event: APIGatewayProxyEventV2,
   nowMs = Date.now,
 ): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', { ...event, body: undefined })
+  log('Received event', redactEvent(event))
   try {
     const auth = extractAuthContext(event)
     const recaptchaToken = auth.isAuthenticated ? null : extractRecaptchaToken(event)

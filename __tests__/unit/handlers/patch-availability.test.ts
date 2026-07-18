@@ -7,7 +7,12 @@ import * as dynamodb from '@services/dynamodb'
 import { APIGatewayProxyEventV2 } from '@types'
 
 jest.mock('@services/dynamodb')
-jest.mock('@utils/logging', () => ({ log: jest.fn(), logError: jest.fn(), xrayCapture: jest.fn((x: unknown) => x) }))
+jest.mock('@utils/logging', () => ({
+  log: jest.fn(),
+  logError: jest.fn(),
+  redactEvent: jest.fn((event: unknown) => event),
+  xrayCapture: jest.fn((x: unknown) => x),
+}))
 
 // Deep-cloning helper so each test gets its own grid — the handler mutates `availability.free`
 // in place, and reusing the same nested arrays across tests via a shallow `{ ...availabilityRecord }`
