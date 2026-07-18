@@ -37,9 +37,9 @@ export const syncCalendarAccountForPoll = async (
   const nextRange =
     record.syncedRange && rangesOverlapOrAdjacent(record.syncedRange, requiredRange)
       ? {
-        end: record.syncedRange.end > requiredRange.end ? record.syncedRange.end : requiredRange.end,
-        start: record.syncedRange.start < requiredRange.start ? record.syncedRange.start : requiredRange.start,
-      }
+          end: record.syncedRange.end > requiredRange.end ? record.syncedRange.end : requiredRange.end,
+          start: record.syncedRange.start < requiredRange.start ? record.syncedRange.start : requiredRange.start,
+        }
       : requiredRange
 
   try {

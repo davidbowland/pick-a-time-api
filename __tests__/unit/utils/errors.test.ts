@@ -1,5 +1,4 @@
 import { ValidationError } from '@errors'
-
 import { serializeValidationError } from '@utils/errors'
 
 describe('serializeValidationError', () => {

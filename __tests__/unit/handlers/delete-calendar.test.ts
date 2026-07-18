@@ -1,6 +1,5 @@
-import { NotFoundError } from '@errors'
-
 import { calendarAccountRecord, session, userRecord } from '../__mocks__'
+import { NotFoundError } from '@errors'
 import eventJson from '@events/delete-calendar.json'
 import { handler } from '@handlers/delete-calendar'
 import * as dynamodb from '@services/dynamodb'

@@ -1,6 +1,5 @@
-import { NotFoundError } from '@errors'
-
 import { availabilityRecord, session, sessionId, userId } from '../__mocks__'
+import { NotFoundError } from '@errors'
 import eventJson from '@events/patch-availability.json'
 import { handler } from '@handlers/patch-availability'
 import * as dynamodb from '@services/dynamodb'

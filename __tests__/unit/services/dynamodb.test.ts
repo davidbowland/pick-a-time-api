@@ -1,5 +1,4 @@
 import { ConditionalCheckFailedException, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
-import { ConflictError, NotFoundError } from '@errors'
 
 import {
   availabilityRecord,
@@ -10,6 +9,7 @@ import {
   userId,
   userRecord,
 } from '../__mocks__'
+import { ConflictError, NotFoundError } from '@errors'
 import {
   createAvailability,
   createUser,

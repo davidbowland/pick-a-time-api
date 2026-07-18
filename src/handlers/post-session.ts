@@ -14,25 +14,25 @@ const MAX_ID_RETRIES = 5
 const buildPoll = (sessionId: string, input: NewPollInput, expiration: number): PollRecord =>
   input.usesTimes
     ? {
-      sessionId,
-      name: input.name,
-      dates: input.dates,
-      usesTimes: true,
-      startMinute: input.startMinute,
-      endMinute: input.endMinute,
-      slotMinutes: input.slotMinutes,
-      timezone: input.timezone,
-      expiration,
-      ...(input.overrides !== undefined && { overrides: input.overrides }),
-    }
+        sessionId,
+        name: input.name,
+        dates: input.dates,
+        usesTimes: true,
+        startMinute: input.startMinute,
+        endMinute: input.endMinute,
+        slotMinutes: input.slotMinutes,
+        timezone: input.timezone,
+        expiration,
+        ...(input.overrides !== undefined && { overrides: input.overrides }),
+      }
     : {
-      sessionId,
-      name: input.name,
-      dates: input.dates,
-      usesTimes: false,
-      timezone: input.timezone,
-      expiration,
-    }
+        sessionId,
+        name: input.name,
+        dates: input.dates,
+        usesTimes: false,
+        timezone: input.timezone,
+        expiration,
+      }
 
 const createSessionWithUniqueId = async (input: NewPollInput, expiration: number): Promise<string> => {
   for (let attempt = 0; attempt < MAX_ID_RETRIES; attempt++) {

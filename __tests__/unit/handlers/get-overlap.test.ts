@@ -1,6 +1,5 @@
-import { NotFoundError } from '@errors'
-
 import { availabilityRecord, calendarAccountRecord, session, sessionId, userRecord } from '../__mocks__'
+import { NotFoundError } from '@errors'
 import eventJson from '@events/get-overlap.json'
 import { handler } from '@handlers/get-overlap'
 import * as calendarSync from '@services/calendar-sync'

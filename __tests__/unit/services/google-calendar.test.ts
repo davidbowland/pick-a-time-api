@@ -1,6 +1,6 @@
-import { InvalidGrantError } from '@errors'
 import axios from 'axios'
 
+import { InvalidGrantError } from '@errors'
 import { exchangeCodeForTokens, fetchFreeBusy, refreshAccessToken, revokeToken } from '@services/google-calendar'
 import * as secrets from '@services/secrets'
 

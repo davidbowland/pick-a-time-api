@@ -1,6 +1,5 @@
-import { NotFoundError } from '@errors'
-
 import { session } from '../__mocks__'
+import { NotFoundError } from '@errors'
 import { assertSessionActive } from '@utils/sessions'
 
 describe('assertSessionActive', () => {

@@ -1,6 +1,5 @@
-import { ConflictError, NotFoundError } from '@errors'
-
 import { session, sessionId } from '../__mocks__'
+import { ConflictError, NotFoundError } from '@errors'
 import eventJson from '@events/post-user.json'
 import { handler } from '@handlers/post-user'
 import * as dynamodb from '@services/dynamodb'

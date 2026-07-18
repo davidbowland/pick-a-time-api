@@ -25,9 +25,9 @@ const buildSlotsForWindow = (startMinute: number, endMinute: number, slotMinutes
 export const buildSlots = (poll: PollRecord): Slot[][] =>
   poll.usesTimes
     ? poll.dates.map((date) => {
-      const { startMinute, endMinute } = resolveWindow(poll, date)
-      return buildSlotsForWindow(startMinute, endMinute, poll.slotMinutes)
-    })
+        const { startMinute, endMinute } = resolveWindow(poll, date)
+        return buildSlotsForWindow(startMinute, endMinute, poll.slotMinutes)
+      })
     : poll.dates.map(() => [{ slotIndex: 0, startMinute: 0, endMinute: 1440 }])
 
 export const emptyGrid = (rowLengths: number[]): boolean[][] =>

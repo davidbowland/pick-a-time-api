@@ -1,6 +1,5 @@
-import { ValidationError } from '@errors'
-
 import { newPollInput } from '../__mocks__'
+import { ValidationError } from '@errors'
 import { APIGatewayProxyEventV2 } from '@types'
 import { extractRecaptchaToken, parseAvailabilityPatch, parseNewPollBody, parseUserPatch } from '@utils/events'
 

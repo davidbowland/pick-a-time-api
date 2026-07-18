@@ -1,6 +1,5 @@
-import { ConflictError, ValidationError } from '@errors'
-
 import { newPollInput, sessionId } from '../__mocks__'
+import { ConflictError, ValidationError } from '@errors'
 import eventJson from '@events/post-session.json'
 import { postSession } from '@handlers/post-session'
 import * as dynamodb from '@services/dynamodb'
