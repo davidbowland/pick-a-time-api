@@ -1,5 +1,5 @@
 import { availabilityRecord, session } from '../__mocks__'
-import { buildBusyGrid, computeGrid, findRecommendedMeetings } from '@services/overlap'
+import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '@services/overlap'
 import { AvailabilityRecord, PollRecord } from '@types'
 
 describe('overlap', () => {
@@ -117,42 +117,6 @@ describe('overlap', () => {
         },
         { dateIndex: 1, slotIndex: 2, startMinute: 1020, endMinute: 1080, freeCount: 0, freeUserIds: [] },
       ])
-    })
-
-    it('should pick the best slot, breaking ties by earliest date then earliest slot', () => {
-      const grid = computeGrid(session, [availabilityRecord, secondUser])
-      // Max freeCount is 2, first reached at dateIndex 1 (slotIndex 1); dateIndex 2 also reaches 2
-      // at every slot, but dateIndex 1 sorts earlier.
-      expect(grid.bestSlot).toEqual({ dateIndex: 1, slotIndex: 1, freeCount: 2 })
-    })
-
-    it('should default bestSlot to (0,0) when every cell is tied', () => {
-      const oneUser: AvailabilityRecord = {
-        userId: 'only-user',
-        free: [
-          [true, true, true],
-          [true, true, true],
-          [true, true, true],
-        ],
-        expiration: availabilityRecord.expiration,
-      }
-      const grid = computeGrid(session, [oneUser])
-      expect(grid.bestSlot).toEqual({ dateIndex: 0, slotIndex: 0, freeCount: 1 })
-    })
-
-    it('should break freeCount ties by earliest date regardless of slotIndex', () => {
-      const custom: AvailabilityRecord = {
-        userId: 'user-x',
-        free: [
-          [false, false, true], // date0: only slot2 free
-          [false, true, false], // date1: only slot1 free
-          [false, false, false],
-        ],
-        expiration: availabilityRecord.expiration,
-      }
-      const grid = computeGrid(session, [custom])
-      // (date0,slot2) and (date1,slot1) tie at freeCount 1; date0 wins regardless of slotIndex.
-      expect(grid.bestSlot).toEqual({ dateIndex: 0, slotIndex: 2, freeCount: 1 })
     })
 
     it('should reduce freeCount when a user is calendar-busy', () => {
@@ -382,6 +346,33 @@ describe('overlap', () => {
       const saturdayCandidates = result.filter((m) => m.dateIndex === 2)
       expect(saturdayCandidates).toHaveLength(1)
       expect(saturdayCandidates[0].slotIndex).toBe(0)
+    })
+  })
+
+  describe('pickBestSlot', () => {
+    it("should take the top recommended meeting's slot info", () => {
+      const recommendedMeetings = [
+        {
+          dateIndex: 1,
+          slotIndex: 2,
+          date: '2025-09-05',
+          startMinute: 990,
+          endMinute: 1050,
+          freeCount: 2,
+          freeUserIds: ['user-a', 'user-b'],
+          excludedByCalendar: ['user-c'],
+        },
+      ]
+      expect(pickBestSlot(recommendedMeetings)).toEqual({
+        dateIndex: 1,
+        slotIndex: 2,
+        freeCount: 2,
+        freeUserIds: ['user-a', 'user-b'],
+      })
+    })
+
+    it('should default to (0,0) with freeCount 0 when there are no recommended meetings', () => {
+      expect(pickBestSlot([])).toEqual({ dateIndex: 0, slotIndex: 0, freeCount: 0, freeUserIds: [] })
     })
   })
 })

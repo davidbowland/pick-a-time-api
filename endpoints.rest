@@ -250,7 +250,7 @@ GET {{host}}/sessions/{{sessionId}}/overlap
 #         { "dateIndex": 0, "slotIndex": 0, "startMinute": 540, "endMinute": 600, "freeCount": 1, "freeUserIds": ["brave-tiger"] }
 #       ]
 #     ],
-#     "bestSlot": { "dateIndex": 0, "slotIndex": 0, "freeCount": 1 }
+#     "bestSlot": { "dateIndex": 0, "slotIndex": 0, "freeCount": 1, "freeUserIds": ["brave-tiger"] }
 #   },
 #   "recommendedMeetings": [
 #     {

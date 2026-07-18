@@ -66,7 +66,7 @@ export interface OverlapCell {
 
 export interface OverlapGrid {
   cells: OverlapCell[][] // [dateIndex][slotIndex]
-  bestSlot: { dateIndex: number; slotIndex: number; freeCount: number }
+  bestSlot: { dateIndex: number; slotIndex: number; freeCount: number; freeUserIds: string[] }
 }
 
 const isBusyAt = (busyGrids: Record<string, BusyGrid>, userId: string, dateIndex: number, slotIndex: number): boolean =>
@@ -76,7 +76,7 @@ export const computeGrid = (
   poll: PollRecord,
   availability: AvailabilityRecord[],
   busyGrids: Record<string, BusyGrid> = {},
-): OverlapGrid => {
+): Pick<OverlapGrid, 'cells'> => {
   const slots = buildSlots(poll)
 
   const cells: OverlapCell[][] = poll.dates.map((_, dateIndex) =>
@@ -95,17 +95,7 @@ export const computeGrid = (
     }),
   )
 
-  let bestSlot = { dateIndex: 0, slotIndex: 0, freeCount: -1 }
-  for (let dateIndex = 0; dateIndex < poll.dates.length; dateIndex++) {
-    for (let slotIndex = 0; slotIndex < slots[dateIndex].length; slotIndex++) {
-      const freeCount = cells[dateIndex][slotIndex].freeCount
-      if (freeCount > bestSlot.freeCount) {
-        bestSlot = { dateIndex, slotIndex, freeCount }
-      }
-    }
-  }
-
-  return { cells, bestSlot }
+  return { cells }
 }
 
 export interface RecommendedMeeting {
@@ -200,4 +190,11 @@ export const findRecommendedMeetings = (
   }
 
   return picks
+}
+
+export const pickBestSlot = (recommendedMeetings: RecommendedMeeting[]): OverlapGrid['bestSlot'] => {
+  const top = recommendedMeetings[0]
+  return top
+    ? { dateIndex: top.dateIndex, slotIndex: top.slotIndex, freeCount: top.freeCount, freeUserIds: top.freeUserIds }
+    : { dateIndex: 0, slotIndex: 0, freeCount: 0, freeUserIds: [] }
 }

@@ -1,7 +1,7 @@
 import { NotFoundError } from '../errors'
 import { syncCalendarAccountForPoll } from '../services/calendar-sync'
 import { getAllAvailability, getAllUsers, getCalendarAccount, getSession } from '../services/dynamodb'
-import { buildBusyGrid, computeGrid, findRecommendedMeetings } from '../services/overlap'
+import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '../services/overlap'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { log, logError } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
@@ -36,8 +36,9 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       busyGridEntries.filter((entry): entry is readonly [string, ReturnType<typeof buildBusyGrid>] => entry !== null),
     )
 
-    const grid = computeGrid(session, availability, busyGrids)
+    const { cells } = computeGrid(session, availability, busyGrids)
     const recommendedMeetings = findRecommendedMeetings(session, availability, 3, busyGrids)
+    const grid = { cells, bestSlot: pickBestSlot(recommendedMeetings) }
 
     return { ...status.OK, body: JSON.stringify({ grid, recommendedMeetings }) }
   } catch (error) {
