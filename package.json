@@ -6,7 +6,7 @@
   "engines": {
     "node": "^24.0.0"
   },
-  "license": "ISC",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/davidbowland/pick-a-time-api.git"

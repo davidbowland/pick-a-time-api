@@ -1,6 +1,9 @@
 # AWS SAM
 .aws-sam/
 
+# SWC compiler cache
+.swc/
+
 # Node artifact files
 node_modules/
 dist/
@@ -49,7 +52,6 @@ Thumbs.db
 *.wmv
 
 .claude/
-.kiro/specs/
 .superpowers/
 .vscode
 .worktrees/

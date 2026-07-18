@@ -68,9 +68,9 @@ npm run lint
 
 ### Deploying to Production
 
-When a pull request is merged into `master`, the lambda code is transpiled to commonjs, zipped, and then copied to S3. Afterwards, the infrastructure portion of the project is deployed, which picks up the new versions in S3 and updates each lambda.
+Deploys run via GitHub Actions (`.github/workflows/pipeline.yaml`): on push, `sam build` (esbuild) bundles each Lambda, `sam package`/`sam deploy` publish it to the test stack, and a merge into `master` promotes the same build to production after tests pass.
 
-In extreme cases, lambdas can be transpiled, zipped, and uploaded locally with:
+In extreme cases, lambdas can be built and deployed locally with:
 
 ```bash
 npm run deploy
@@ -78,7 +78,7 @@ npm run deploy
 
 ## Infrastructure
 
-See `infrastructure` folder for information on updating infrastructure.
+See the sibling [pick-a-time-infrastructure](https://github.com/davidbowland/pick-a-time-infrastructure) repo for the CloudFormation stack this API deploys into.
 
 ## Additional Documentation
 
