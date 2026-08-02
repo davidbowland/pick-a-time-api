@@ -33,6 +33,7 @@ Parameters:
 Mappings:
   EnvironmentMap:
     prod:
+      authDomain: auth.pick-a-time.com
       certificateRegional: cdf7b531-7189-4a69-a82c-ea54ef16729e
       corsDomain: https://pick-a-time.com
       domain: api.pick-a-time.com
@@ -43,6 +44,7 @@ Mappings:
       sessionsTable: pick-a-time-api-sessions
       zoneId: Z09477181IUYK36D4AQQV
     test:
+      authDomain: pick-a-time-auth.bowland.link
       certificateRegional: 6a48cba7-feb9-4de5-8cbf-d383140fcdef
       corsDomain: https://pick-a-time.bowland.link
       domain: pick-a-time-api.bowland.link
@@ -1218,7 +1220,25 @@ Resources:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       UserPoolId: !Ref UserPool
-      Domain: !Sub 'pick-a-time-auth-${Environment}'
+      Domain: !FindInMap [EnvironmentMap, !Ref Environment, authDomain]
+      CustomDomainConfig:
+        # Cognito fronts custom domains with CloudFront, so the certificate has to live in
+        # us-east-1 no matter where the user pool does. This stack is us-east-1 anyway.
+        CertificateArn: !Sub
+          - 'arn:aws:acm:us-east-1:${AWS::AccountId}:certificate/${Certificate}'
+          - Certificate: !FindInMap [EnvironmentMap, !Ref Environment, certificateRegional]
+
+  UserPoolDomainRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt UserPoolDomain.CloudFrontDistribution
+        # Every CloudFront distribution lives in this hosted zone. It is a fixed AWS constant,
+        # not an ID from this account.
+        HostedZoneId: Z2FDTNDATAQYW2
+      HostedZoneId: !FindInMap [EnvironmentMap, !Ref Environment, zoneId]
+      Name: !FindInMap [EnvironmentMap, !Ref Environment, authDomain]
+      Type: A
 
   # DynamoDB — Single-table design
 
