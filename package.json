@@ -18,6 +18,7 @@
   "scripts": {
     "clean": "rm -rf .aws-sam coverage && NODE_ENV=test npm ci",
     "deploy": "NODE_ENV=production npm ci && ./scripts/deploy.sh",
+    "generate-secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
     "lint": "prettier --write . && eslint --fix .",
     "prepare": "husky || true",
     "start": "./scripts/runLocal.sh",
@@ -26,9 +27,9 @@
     "update": "ncu --doctor --target minor --upgrade && npm audit fix --audit-level=none && npm run test && npm dedupe"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1101.0",
-    "@aws-sdk/client-kms": "^3.1101.0",
-    "@aws-sdk/client-ssm": "^3.1101.0",
+    "@aws-sdk/client-dynamodb": "^3.1102.0",
+    "@aws-sdk/client-kms": "^3.1102.0",
+    "@aws-sdk/client-ssm": "^3.1102.0",
     "aws-xray-sdk-core": "^3.12.0",
     "axios": "^1.19.0",
     "axios-retry": "^4.5.0",
@@ -57,7 +58,7 @@
     "prettier": "^3.9.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.66.0"
   },
   "lint-staged": {
     "**/*.{js,jsx,ts,tsx}": [
