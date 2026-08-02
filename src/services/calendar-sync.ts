@@ -26,10 +26,19 @@ export const syncCalendarAccountForPoll = async (
   record: CalendarAccountRecord,
   poll: PollRecord,
   now: () => number = Date.now,
+  force = false,
 ): Promise<CalendarAccountRecord> => {
   const dates = poll.dates
   const isFresh = now() - record.lastSyncedAt * 1000 < calendarSyncFreshnessMs
-  if (isFresh && rangeCoversDates(record.syncedRange, dates)) {
+  // A person pressing "Check again" is asking for a real check, not a cached one.
+  //
+  // 'error' records are never fresh, whatever lastSyncedAt says. The failure path below stamps
+  // lastSyncedAt too, so without this clause a single transient Google failure made the record look
+  // freshly synced and every check for the next freshness window short-circuited to that same
+  // errored record -- a 502 from the sync handler with no Google round-trip behind it. Worse, a 502
+  // never stamps calendarCheckedAt, so the poll's one automatic first check stayed blocked the whole
+  // time. A retry has to actually retry.
+  if (!force && isFresh && record.status !== 'error' && rangeCoversDates(record.syncedRange, dates)) {
     return record
   }
 
@@ -69,13 +78,13 @@ export const syncCalendarAccountForPoll = async (
     return updated
   } catch (error) {
     logError('Calendar sync failed, serving cached busy data', sanitizeErrorForLogging(error))
-    // Update lastSyncedAt even on failure so an account that has synced successfully at least
-    // once before doesn't get retried (KMS decrypt + a guaranteed-failing Google round-trip) on
-    // every single overlap/users read until the normal freshness window elapses. An account that
-    // has NEVER synced successfully (syncedRange: null) will still retry on every read, since
-    // rangeCoversDates(null, ...) is always false regardless of lastSyncedAt -- that narrower,
-    // "freshly broken" case is left alone; this only closes the "was working, now permanently
-    // retrying forever" case.
+    // lastSyncedAt moves even on failure: it dates the last check ATTEMPT, which is what
+    // GET /calendar reports next to status: 'error' so a client can say when the connection was
+    // last found broken. It no longer suppresses the next retry -- the 'error' clause in the
+    // freshness short-circuit above deliberately overrides it, because a cached 502 is worse than
+    // a repeated Google call. The call volume that argued for suppression is gone anyway: this
+    // function has exactly one caller, POST .../calendar/sync, which itself runs at most once per
+    // poll per person unless they press "Check again".
     const updated: CalendarAccountRecord = { ...record, lastSyncedAt: Math.floor(now() / 1000), status: 'error' }
     await persistCalendarAccount(updated)
     return updated

@@ -29,6 +29,7 @@ describe('patch-availability', () => {
     jest.mocked(dynamodb).getSession.mockResolvedValue({ session: futureSession, users: [userId] })
     jest.mocked(dynamodb).getAvailability.mockImplementation(async () => ({
       userId,
+      calendarCheckedAt: null,
       expiration: availabilityRecord.expiration,
       free: cloneGrid(availabilityRecord.free),
     }))
@@ -70,6 +71,29 @@ describe('patch-availability', () => {
           [false, true, true],
         ],
       }),
+    )
+  })
+
+  it('should not reveal whether this participant has a connected calendar', async () => {
+    jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({
+      userId,
+      calendarCheckedAt: 1_728_547_000,
+      expiration: availabilityRecord.expiration,
+      free: cloneGrid(availabilityRecord.free),
+    })
+    const event = withBody({ cells: [{ dateIndex: 0, slotIndex: 0, value: true }] })
+
+    const result = await handler(event)
+
+    // This endpoint is unauthenticated, so anyone holding the poll link can patch any participant
+    // and read the echoed record. A non-null calendarCheckedAt would prove that person connected
+    // a Google calendar.
+    expect(JSON.parse((result as { body: string }).body)).not.toHaveProperty('calendarCheckedAt')
+    // The stored record keeps the field: only the response omits it.
+    expect(dynamodb.updateAvailability).toHaveBeenCalledWith(
+      sessionId,
+      userId,
+      expect.objectContaining({ calendarCheckedAt: 1_728_547_000 }),
     )
   })
 

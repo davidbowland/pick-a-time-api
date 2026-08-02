@@ -125,22 +125,17 @@ GET {{host}}/sessions/{{sessionId}}
 
 GET {{host}}/sessions/{{sessionId}}/users
 
-# calendarStatus is "not_connected" | "connected" | "error", derived from the user's Google account
-# (if any) and defaulting to "not_connected" if that lookup fails.
-#
 # Response 200:
 # [
 #   {
 #     "userId": "brave-tiger",
 #     "name": "Alice",
-#     "expiration": 1725453600,
-#     "calendarStatus": "connected"
+#     "expiration": 1725453600
 #   },
 #   {
 #     "userId": "clever-fox",
 #     "name": "Bob",
-#     "expiration": 1725453600,
-#     "calendarStatus": "not_connected"
+#     "expiration": 1725453600
 #   }
 # ]
 #
@@ -193,6 +188,11 @@ Content-Type: application/json
 # a date covered by a time-window override can have a different number of slots than other dates in
 # the same poll, so free's rows are not guaranteed uniform width. There is no recurring pattern
 # concept beyond overrides; every date/slot is otherwise independent.
+#
+# The stored record also holds calendarCheckedAt. Both this route and PATCH .../availability strip it
+# on purpose: they are unauthenticated and take the participant in the path, so returning it would tell
+# anyone holding the poll link which participants connected a calendar. Its absence here is deliberate,
+# not an oversight -- read it from the availability POST .../calendar/sync returns to you instead.
 GET {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 
 # Response 200:
@@ -230,9 +230,10 @@ Content-Type: application/json
 
 ### Get overlap grid and recommended meeting times
 # Always reflects the whole poll -- there is no pattern/week view distinction anymore.
-# recommendedMeetings factors in connected Google Calendar busy time for each user in addition to their
-# marked availability. Each entry lists excludedByCalendar: userIds who marked themselves free for that
-# slot but were excluded because their calendar shows a conflict.
+# recommendedMeetings counts only what each participant marked. Reading the overlap never reads anyone's
+# Google Calendar: a calendar check is an explicit write (POST .../calendar/sync) that marks the person
+# busy on their own grid, so by the time overlap runs, that busy time is already part of their marked
+# availability. A participant who marked a slot free is free for it, whatever their calendar says.
 #
 # grid.cells is per-date (cells[dateIndex]), same order as the poll's dates -- and, like
 # GET /sessions/{sessionId}'s slots, each date's row can be a different length when the poll has
@@ -260,8 +261,7 @@ GET {{host}}/sessions/{{sessionId}}/overlap
 #       "startMinute": 540,
 #       "endMinute": 600,
 #       "freeCount": 1,
-#       "freeUserIds": ["brave-tiger"],
-#       "excludedByCalendar": []
+#       "freeUserIds": ["brave-tiger"]
 #     }
 #   ]
 # }
@@ -277,7 +277,68 @@ Authorization: Bearer {{cognitoIdToken}}
 # Response 200 (not yet connected): { "alreadyConnected": false, "authUrl": "https://accounts.google.com/o/oauth2/v2/auth?..." }
 # Response 200 (already connected, any poll): { "alreadyConnected": true }
 # Response 400: not authenticated with Google
+# Response 403: {userId} is someone else's participant, or has never linked a Google account. Sign in
+#   and claim the participant first (POST /users/authed or PATCH .../authed), then connect.
 # Response 404: session or user not found
+
+###
+
+### Check the calendar and mark booked hours busy
+# Reads the signed-in person's Google Calendar and marks them busy on their own availability for this
+# poll wherever the calendar says they are booked. It only ever marks busy: an hour the calendar
+# reports free is left exactly as they set it, and an hour already marked busy stays busy and is not
+# counted. Nothing records which hours came from the calendar, so a marked hour is indistinguishable
+# from one they unmarked by hand -- and they can mark it free again with a normal PATCH .../availability.
+#
+# force (optional, default false):
+# - false -- run only if this poll has never been checked for this person. If it has, the call is a
+#   no-op: it returns applied: false, markedBusyCount: 0, the unchanged availability, and never calls
+#   Google. This is the safe call to make on page load; without it a background check would silently
+#   undo a deliberate "I'm free then" edit with nothing on the record to explain why.
+# - true -- always check, bypassing both the once-per-poll rule and the cached-busy-data freshness
+#   window. This is the "Check again" button.
+#
+# markedBusyCount is how many slots this call changed from free to busy -- 0 is a normal answer, not a
+# failure. lastSyncedAt is epoch seconds of the last time this account's calendar was CHECKED, not the
+# last time a check succeeded: a failed fetch moves it forward too. Do not present it as "your
+# calendar was up to date as of X".
+# availability is the full updated record (including calendarCheckedAt), so repaint the grid from it
+# rather than issuing a second read.
+
+POST {{host}}/sessions/{{sessionId}}/users/{{userId}}/calendar/sync
+Authorization: Bearer {{cognitoIdToken}}
+Content-Type: application/json
+
+{
+  "force": false
+}
+
+# Response 200 (checked):
+# {
+#   "applied": true,
+#   "markedBusyCount": 4,
+#   "lastSyncedAt": 1754006400,
+#   "availability": {
+#     "userId": "brave-tiger",
+#     "free": [
+#       [false, false, false],
+#       [true, true, false],
+#       [true, true, true]
+#     ],
+#     "calendarCheckedAt": 1754006400,
+#     "expiration": 1725453600
+#   }
+# }
+#
+# Response 200 (already checked, force false): same shape with "applied": false, "markedBusyCount": 0,
+# and the availability unchanged.
+#
+# Response 400: not authenticated with Google, or no calendar connected for this account
+# Response 403: {userId} is someone else's participant, or has never linked a Google account. You can
+#   only check your own calendar onto your own availability, so nothing about another participant --
+#   including whether they ever connected a calendar -- comes back here.
+# Response 404: session, user, or availability record not found
+# Response 502: Google could not be reached -- availability is left untouched, so retrying is safe
 
 ###
 
@@ -288,10 +349,33 @@ GET {{host}}/oauth/google-calendar/callback?code=...&state=...
 
 ###
 
-### Disconnect Google Calendar (revokes everywhere this Google account is connected, not just this poll)
-DELETE {{host}}/sessions/{{sessionId}}/users/{{userId}}/calendar
+### Get calendar connection state
+# A calendar connection belongs to a Google account, not to a poll, so this route takes no poll and
+# answers for whoever the JWT names. status is "not_connected" (no calendar linked, or never linked),
+# "connected", or "error" (the last attempt to read Google failed -- offer a reconnect). lastSyncedAt
+# is epoch seconds of the last check ATTEMPT, or null if this account has never been checked. A failed
+# check moves it forward, so read it together with status: it dates the attempt, not the data. When
+# status is "error" the busy data behind it is older than lastSyncedAt says.
+#
+# There is no "has this poll been checked" field here. That lives on calendarCheckedAt in the record
+# POST .../calendar/sync returns, which the client already has.
+
+GET {{host}}/calendar
+Authorization: Bearer {{cognitoIdToken}}
+
+# Response 200: { "status": "connected", "lastSyncedAt": 1754006400 }
+# Response 200 (never connected): { "status": "not_connected", "lastSyncedAt": null }
+# Response 400: not authenticated with Google
+
+###
+
+### Disconnect Google Calendar
+# Revokes the connection for the whole Google account, so it takes no poll: one person's calendar is
+# linked once and reaches every poll they are in. Availability already marked busy by a past check
+# stays as it is -- disconnecting stops future checks, it does not undo past ones.
+
+DELETE {{host}}/calendar
 Authorization: Bearer {{cognitoIdToken}}
 
 # Response 204: disconnected (or was never connected)
 # Response 400: not authenticated with Google
-# Response 404: session or user not found

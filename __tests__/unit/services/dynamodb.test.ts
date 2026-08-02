@@ -114,6 +114,18 @@ describe('dynamodb', () => {
       expect(result).toEqual(availabilityRecord)
     })
 
+    it('should read a record stored before calendarCheckedAt existed as never checked', async () => {
+      const { calendarCheckedAt: _, ...legacyRecord } = availabilityRecord
+      mockSend.mockResolvedValueOnce({ Item: { Data: { S: JSON.stringify(legacyRecord) } } })
+
+      const result = await getAvailability(sessionId, userId)
+
+      // Every record written before this feature reads back with the key absent. Handlers compare
+      // against null, and `undefined !== null`, so leaving it absent would tell the sync handler
+      // that every pre-existing participant had already been checked.
+      expect(result.calendarCheckedAt).toBeNull()
+    })
+
     it('should throw NotFoundError when Item is missing', async () => {
       mockSend.mockResolvedValueOnce({ Item: undefined })
       await expect(getAvailability(sessionId, userId)).rejects.toThrow(NotFoundError)

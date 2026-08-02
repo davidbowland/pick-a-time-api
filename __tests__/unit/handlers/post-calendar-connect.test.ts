@@ -1,4 +1,4 @@
-import { calendarAccountRecord, session, userId, userRecord } from '../__mocks__'
+import { calendarAccountRecord, googleSub, session, userId, userRecord } from '../__mocks__'
 import { NotFoundError } from '@errors'
 import eventJson from '@events/post-calendar-connect.json'
 import { handler } from '@handlers/post-calendar-connect'
@@ -21,9 +21,13 @@ describe('post-calendar-connect', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2
   const futureSession = { ...session, expiration: 9999999999 }
 
+  // The shared userRecord fixture carries googleSub: null. Every happy-path test here is the owner
+  // starting the flow on their own record, so this suite overrides it with the caller's own sub.
+  const ownedUserRecord = { ...userRecord, googleSub }
+
   beforeAll(() => {
     jest.mocked(dynamodb).getSession.mockResolvedValue({ session: futureSession, users: [userId] })
-    jest.mocked(dynamodb).getUser.mockResolvedValue(userRecord)
+    jest.mocked(dynamodb).getUser.mockResolvedValue(ownedUserRecord)
     jest.mocked(dynamodb).getCalendarAccount.mockResolvedValue(null)
     jest.mocked(oauthState).signCalendarState.mockResolvedValue('signed-state-token')
     jest.mocked(secrets).getGoogleCalendarClientId.mockResolvedValue('calendar-client-id')
@@ -60,6 +64,21 @@ describe('post-calendar-connect', () => {
       } as unknown as APIGatewayProxyEventV2
       const result = await handler(unauthedEvent)
       expect(result).toEqual(expect.objectContaining({ statusCode: 400 }))
+    })
+
+    it('should return FORBIDDEN when the caller is not the participant named in the path', async () => {
+      jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-sub-victim' })
+      const result = await handler(event)
+      expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
+      expect(dynamodb.getCalendarAccount).not.toHaveBeenCalled()
+      expect(oauthState.signCalendarState).not.toHaveBeenCalled()
+    })
+
+    it('should return FORBIDDEN when the participant has never linked a Google account', async () => {
+      jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: null })
+      const result = await handler(event)
+      expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
+      expect(oauthState.signCalendarState).not.toHaveBeenCalled()
     })
 
     it('should return NOT_FOUND when the session does not exist', async () => {

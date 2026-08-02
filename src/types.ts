@@ -47,6 +47,10 @@ export interface UserRecord {
 export interface AvailabilityRecord {
   userId: string
   free: boolean[][] // [dateIndex][slotIndex]; slotIndex always 0 when the poll's usesTimes is false
+  // Epoch seconds of the last calendar check in THIS poll, or null if there has never been one.
+  // Deliberately not provenance: it records that a check ran, never which hours it touched, so
+  // nothing derived from it can distinguish a calendar-marked hour from a hand-unmarked one.
+  calendarCheckedAt: number | null
   expiration: number
 }
 

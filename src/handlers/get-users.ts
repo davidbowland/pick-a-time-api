@@ -1,26 +1,9 @@
 import { NotFoundError } from '../errors'
-import { getAllUsers, getCalendarAccount, getSession } from '../services/dynamodb'
+import { getAllUsers, getSession } from '../services/dynamodb'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { log, logError, redactEvent } from '../utils/logging'
 import status from '../utils/status'
 import { stripGoogleSub } from '../utils/users'
-
-type CalendarStatus = 'not_connected' | 'connected' | 'error'
-
-const resolveCalendarStatus = async (googleSub: string | null): Promise<CalendarStatus> => {
-  if (!googleSub) return 'not_connected'
-  try {
-    const record = await getCalendarAccount(googleSub)
-    return record?.status ?? 'not_connected'
-  } catch (error) {
-    // A transient failure looking up ONE user's calendar record must not 500 the whole
-    // /users response for every user in the session. Default to 'not_connected' rather than
-    // 'error': we don't actually know this user's connection is broken, we just failed to
-    // check it, and 'not_connected' doesn't assert anything false either way.
-    logError(error)
-    return 'not_connected'
-  }
-}
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
   log('Received event', redactEvent(event))
@@ -32,15 +15,12 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       return status.NOT_FOUND
     }
 
+    // This endpoint is unauthenticated, so it cannot scope its answer to the person asking.
+    // Reporting each participant's calendar connection state told every participant something
+    // about every other one that none of them needs to know.
     const users = await getAllUsers(sessionId)
-    const usersWithCalendarStatus = await Promise.all(
-      users.map(async (user) => ({
-        ...stripGoogleSub(user),
-        calendarStatus: await resolveCalendarStatus(user.googleSub),
-      })),
-    )
 
-    return { ...status.OK, body: JSON.stringify(usersWithCalendarStatus) }
+    return { ...status.OK, body: JSON.stringify(users.map(stripGoogleSub)) }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND
     logError(error)

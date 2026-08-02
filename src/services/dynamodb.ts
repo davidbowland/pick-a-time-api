@@ -56,6 +56,14 @@ export const putNewSession = async (sessionId: string, session: PollRecord): Pro
 
 /* Availability */
 
+// Records written before calendarCheckedAt existed read back without the key. Readers compare it
+// against null, and `undefined !== null`, so an unnormalized legacy record would look like one that
+// had already been checked -- and never get its first calendar check.
+const parseAvailability = (data: string): AvailabilityRecord => {
+  const parsed = JSON.parse(data)
+  return { ...parsed, calendarCheckedAt: parsed.calendarCheckedAt ?? null }
+}
+
 export const getAvailability = async (sessionId: string, userId: string): Promise<AvailabilityRecord> => {
   const command = new GetItemCommand({
     Key: { PK: { S: sessionId }, SK: { S: `AVAIL#${userId}` } },
@@ -65,7 +73,7 @@ export const getAvailability = async (sessionId: string, userId: string): Promis
   if (!response.Item?.Data?.S) {
     throw new NotFoundError('Availability not found')
   }
-  return JSON.parse(response.Item.Data.S)
+  return parseAvailability(response.Item.Data.S)
 }
 
 export const createAvailability = async (sessionId: string, availability: AvailabilityRecord): Promise<void> => {
@@ -114,7 +122,7 @@ export const getAllAvailability = async (sessionId: string): Promise<Availabilit
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
-  return (response.Items ?? []).map((item: { Data: { S: string } }) => JSON.parse(item.Data.S))
+  return (response.Items ?? []).map((item: { Data: { S: string } }) => parseAvailability(item.Data.S))
 }
 
 /* Users */

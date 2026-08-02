@@ -5,10 +5,11 @@ export default {
   NO_CONTENT: { statusCode: 204, body: '' },
   BAD_REQUEST: { statusCode: 400, body: '{"message":"Bad request"}' },
   UNAUTHORIZED: { statusCode: 401, body: '{"message":"Unauthorized"}' },
-  FORBIDDEN: { statusCode: 403 },
+  FORBIDDEN: { statusCode: 403, body: '{"message":"Forbidden"}' },
   NOT_FOUND: { statusCode: 404, body: '{"message":"Not found"}' },
   CONFLICT: { statusCode: 409 },
   UNPROCESSABLE_ENTITY: { statusCode: 422 },
   TOO_MANY_REQUESTS: { statusCode: 429 },
+  BAD_GATEWAY: { statusCode: 502, body: '{"message":"Upstream request failed"}' },
   INTERNAL_SERVER_ERROR: { statusCode: 500, body: '{"message":"Internal server error"}' },
 }

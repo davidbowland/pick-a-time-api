@@ -25,7 +25,20 @@ describe('get-availability', () => {
   it('should return the availability record', async () => {
     const result = await handler(event)
     expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
-    expect(JSON.parse((result as { body: string }).body)).toEqual(availabilityRecord)
+    const { calendarCheckedAt: _, ...visible } = availabilityRecord
+    expect(JSON.parse((result as { body: string }).body)).toEqual(visible)
+  })
+
+  it('should not reveal whether this participant has a connected calendar', async () => {
+    jest
+      .mocked(dynamodb)
+      .getAvailability.mockResolvedValueOnce({ ...availabilityRecord, calendarCheckedAt: 1_728_547_000 })
+
+    const result = await handler(event)
+
+    // This endpoint is unauthenticated, so it answers for any participant to anyone holding the
+    // poll link. A non-null calendarCheckedAt would prove that person connected a Google calendar.
+    expect(JSON.parse((result as { body: string }).body)).not.toHaveProperty('calendarCheckedAt')
   })
 
   it('should return NOT_FOUND when the session is expired', async () => {

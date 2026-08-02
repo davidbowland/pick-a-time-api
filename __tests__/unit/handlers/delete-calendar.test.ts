@@ -1,5 +1,4 @@
-import { calendarAccountRecord, session, userRecord } from '../__mocks__'
-import { NotFoundError } from '@errors'
+import { calendarAccountRecord } from '../__mocks__'
 import eventJson from '@events/delete-calendar.json'
 import { handler } from '@handlers/delete-calendar'
 import * as dynamodb from '@services/dynamodb'
@@ -20,11 +19,8 @@ jest.mock('@utils/logging', () => ({
 
 describe('delete-calendar', () => {
   const event = eventJson as unknown as APIGatewayProxyEventV2
-  const futureSession = { ...session, expiration: 9999999999 }
 
   beforeAll(() => {
-    jest.mocked(dynamodb).getSession.mockResolvedValue({ session: futureSession, users: [] })
-    jest.mocked(dynamodb).getUser.mockResolvedValue(userRecord)
     jest.mocked(dynamodb).getCalendarAccount.mockResolvedValue(calendarAccountRecord)
     jest.mocked(dynamodb).deleteCalendarAccount.mockResolvedValue(undefined)
     jest.mocked(kms).decryptRefreshToken.mockResolvedValue('decrypted-rt')
@@ -76,18 +72,25 @@ describe('delete-calendar', () => {
       expect(dynamodb.deleteCalendarAccount).not.toHaveBeenCalled()
     })
 
-    it('should return NOT_FOUND when the session-user does not exist', async () => {
-      jest.mocked(dynamodb).getUser.mockRejectedValueOnce(new NotFoundError('User not found'))
-      const result = await handler(event)
-      expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
-    })
-
     it('should still delete the record when decryption fails, without attempting revocation', async () => {
       jest.mocked(kms).decryptRefreshToken.mockRejectedValueOnce(new Error('KMS unavailable'))
       const result = await handler(event)
       expect(result).toEqual(expect.objectContaining({ statusCode: 204 }))
       expect(dynamodb.deleteCalendarAccount).toHaveBeenCalledWith(calendarAccountRecord.googleSub)
       expect(googleCalendar.revokeToken).not.toHaveBeenCalled()
+    })
+
+    it('should not require a session or user', async () => {
+      const result = await handler(event)
+      expect(result).toEqual(expect.objectContaining({ statusCode: 204 }))
+      expect(dynamodb.getSession).not.toHaveBeenCalled()
+      expect(dynamodb.getUser).not.toHaveBeenCalled()
+    })
+
+    it('should return 400 without a Google identity', async () => {
+      const anonymous = { ...event, requestContext: { ...event.requestContext, authorizer: undefined } }
+      const result = await handler(anonymous as unknown as APIGatewayProxyEventV2)
+      expect(result.statusCode).toEqual(400)
     })
   })
 })

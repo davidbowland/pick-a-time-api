@@ -39,6 +39,7 @@ export const availabilityRecord: AvailabilityRecord = {
     [true, true, false], // 2025-09-05
     [true, true, true], // 2025-09-06
   ],
+  calendarCheckedAt: null,
   expiration: 1728547851,
 }
 

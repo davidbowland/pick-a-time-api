@@ -1,7 +1,6 @@
 import { NotFoundError } from '../errors'
-import { syncCalendarAccountForPoll } from '../services/calendar-sync'
-import { getAllAvailability, getAllUsers, getCalendarAccount, getSession } from '../services/dynamodb'
-import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '../services/overlap'
+import { getAllAvailability, getSession } from '../services/dynamodb'
+import { computeGrid, findRecommendedMeetings, pickBestSlot } from '../services/overlap'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { log, logError, redactEvent } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
@@ -15,29 +14,13 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     const { session } = await getSession(sessionId)
     assertSessionActive(session)
 
-    const [availability, users] = await Promise.all([getAllAvailability(sessionId), getAllUsers(sessionId)])
+    const availability = await getAllAvailability(sessionId)
 
-    const busyGridEntries = await Promise.all(
-      users
-        .filter((user) => user.googleSub)
-        .map(async (user) => {
-          try {
-            const record = await getCalendarAccount(user.googleSub as string)
-            if (!record) return null
-            const synced = await syncCalendarAccountForPoll(record, session)
-            return [user.userId, buildBusyGrid(session, synced.busyIntervals)] as const
-          } catch (error) {
-            logError(error)
-            return null
-          }
-        }),
-    )
-    const busyGrids = Object.fromEntries(
-      busyGridEntries.filter((entry): entry is readonly [string, ReturnType<typeof buildBusyGrid>] => entry !== null),
-    )
-
-    const { cells } = computeGrid(session, availability, busyGrids)
-    const recommendedMeetings = findRecommendedMeetings(session, availability, 3, busyGrids)
+    // Reading results never touches anybody's calendar. Busy time is already folded into stored
+    // availability by the sync endpoint, so filtering again here would subtract a synced person
+    // twice -- and a GET that rewrote people's hours as a side effect was never defensible.
+    const { cells } = computeGrid(session, availability)
+    const recommendedMeetings = findRecommendedMeetings(session, availability, 3)
     const grid = { cells, bestSlot: pickBestSlot(recommendedMeetings) }
 
     return { ...status.OK, body: JSON.stringify({ grid, recommendedMeetings }) }

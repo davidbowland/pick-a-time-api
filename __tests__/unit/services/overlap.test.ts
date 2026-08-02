@@ -1,5 +1,5 @@
-import { availabilityRecord, session } from '../__mocks__'
-import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '@services/overlap'
+import { availabilityRecord, calendarAccountRecord, session } from '../__mocks__'
+import { buildBusyGrid, computeGrid, findRecommendedMeetings, markBusyHours, pickBestSlot } from '@services/overlap'
 import { AvailabilityRecord, PollRecord } from '@types'
 
 describe('overlap', () => {
@@ -84,6 +84,159 @@ describe('overlap', () => {
     })
   })
 
+  describe('markBusyHours', () => {
+    // calendarAccountRecord.busyIntervals is 2025-09-04 16:00-17:00 America/Chicago. The session's
+    // slots overlap, so that one interval covers TWO slots on dateIndex 0: slot0 [16:00-17:00) and
+    // slot1 [16:30-17:30). slot2 [17:00-18:00) and every slot on the other two dates stay free.
+    const busy = calendarAccountRecord.busyIntervals
+    // A factory, not a constant: every test gets its own grid, so a mutating implementation can
+    // never leak a marked cell from one test into the next.
+    const allFree = (): boolean[][] => [
+      [true, true, true],
+      [true, true, true],
+      [true, true, true],
+    ]
+
+    it('should mark a free slot busy when the calendar says busy', () => {
+      const input = { ...availabilityRecord, free: allFree() }
+
+      const result = markBusyHours(session, input, busy)
+
+      expect(result.availability.free[0]).toEqual([false, false, true])
+      expect(result.markedBusyCount).toBe(2)
+    })
+
+    it('should not count a slot that was already busy', () => {
+      // slot0 is already marked busy by hand, so only slot1 moves -- one fewer than the 2 counted
+      // when the same interval lands on an all-free row.
+      const input = {
+        ...availabilityRecord,
+        free: [
+          [false, true, true],
+          [true, true, true],
+          [true, true, true],
+        ],
+      }
+
+      const result = markBusyHours(session, input, busy)
+
+      expect(result.availability.free[0][0]).toBe(false)
+      expect(result.markedBusyCount).toBe(1)
+    })
+
+    it('should never mark a slot free', () => {
+      // Every slot the calendar reports FREE (slot2 on dateIndex 0, all of dateIndex 1 and 2) is
+      // busy here. A two-way edit would turn them all back on; a one-way edit leaves them alone.
+      const input = {
+        ...availabilityRecord,
+        free: [
+          [false, false, false],
+          [false, false, false],
+          [false, false, false],
+        ],
+      }
+
+      const result = markBusyHours(session, input, busy)
+
+      expect(result.availability.free.flat()).not.toContain(true)
+      expect(result.markedBusyCount).toBe(0)
+    })
+
+    it('should leave slots the calendar reports free untouched', () => {
+      const input = { ...availabilityRecord, free: allFree() }
+
+      const result = markBusyHours(session, input, busy)
+
+      expect(result.availability.free[0][2]).toBe(true)
+      expect(result.availability.free[1]).toEqual([true, true, true])
+      expect(result.availability.free[2]).toEqual([true, true, true])
+    })
+
+    it('should not mutate its input', () => {
+      const input = { ...availabilityRecord, free: allFree() }
+
+      markBusyHours(session, input, busy)
+
+      expect(input.free[0][0]).toBe(true)
+    })
+
+    it('should preserve every other field on the record', () => {
+      const input = { ...availabilityRecord, free: allFree() }
+
+      const result = markBusyHours(session, input, busy)
+
+      expect(result.availability.userId).toBe(input.userId)
+      expect(result.availability.expiration).toBe(input.expiration)
+    })
+
+    it('should mark nothing when there are no busy intervals', () => {
+      const input = { ...availabilityRecord, free: allFree() }
+
+      const result = markBusyHours(session, input, [])
+
+      expect(result.markedBusyCount).toBe(0)
+      expect(result.availability.free[0]).toEqual([true, true, true])
+    })
+
+    it('should respect per-date override windows where rows have different lengths', () => {
+      // An override narrows Saturday to a single slot, so the busy grid is ragged: rows 0 and 1 are
+      // 3 slots wide, row 2 is 1. A stored availability row can still be 3 wide there -- written
+      // before the override narrowed the day, or by a client holding a stale copy of the poll.
+      // Every slot past the end of its busy row has no calendar answer at all, and "no answer"
+      // means free: the guard reads those as not-busy rather than marking them or throwing.
+      const pollWithOverride: PollRecord = {
+        ...session,
+        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }],
+      }
+      // 2025-09-06 16:00-17:00 America/Chicago -- exactly the override's one slot, so the short row
+      // really does report busy and the test cannot pass by marking nothing at all.
+      const saturdayBusy = [{ start: '2025-09-06T21:00:00.000Z', end: '2025-09-06T22:00:00.000Z' }]
+      const input = { ...availabilityRecord, free: allFree() }
+
+      const result = markBusyHours(pollWithOverride, input, saturdayBusy)
+
+      expect(result.availability.free[2]).toEqual([false, true, true])
+      expect(result.markedBusyCount).toBe(1)
+      // The wider rows on the other dates are untouched -- a short row elsewhere does not shrink them.
+      expect(result.availability.free[0]).toEqual([true, true, true])
+      expect(result.availability.free[1]).toEqual([true, true, true])
+    })
+
+    it('should leave a stored date row that the poll no longer has untouched', () => {
+      // The other half of the same guard: availability can outlive a date. Dropping a date from the
+      // poll leaves records whose grid has more rows than the poll has dates, and the missing row
+      // has no calendar answer for any of its slots.
+      const shorterPoll: PollRecord = { ...session, dates: ['2025-09-04', '2025-09-05'] }
+      const input = { ...availabilityRecord, free: allFree() } // still 3 rows
+
+      const result = markBusyHours(shorterPoll, input, busy)
+
+      expect(result.availability.free[2]).toEqual([true, true, true])
+      expect(result.markedBusyCount).toBe(2) // only the two cells on the date the poll still has
+    })
+
+    it('should mark a dates-only poll busy only for a full-day block', () => {
+      const datesOnly: PollRecord = {
+        sessionId: session.sessionId,
+        name: session.name,
+        dates: session.dates,
+        usesTimes: false,
+        timezone: session.timezone,
+        expiration: session.expiration,
+      }
+      const input = { ...availabilityRecord, free: [[true], [true], [true]] }
+
+      const partial = markBusyHours(datesOnly, input, busy)
+      expect(partial.markedBusyCount).toBe(0)
+
+      // 2025-09-04T00:00 through 2025-09-05T00:00 America/Chicago -- the whole of dateIndex 0.
+      const allDay = [{ start: '2025-09-04T05:00:00.000Z', end: '2025-09-05T05:00:00.000Z' }]
+      const full = markBusyHours(datesOnly, input, allDay)
+      expect(full.availability.free[0][0]).toBe(false)
+      expect(full.markedBusyCount).toBe(1)
+    })
+  })
+
   describe('computeGrid', () => {
     const secondUser: AvailabilityRecord = {
       userId: 'second-user',
@@ -92,6 +245,7 @@ describe('overlap', () => {
         [false, true, false],
         [true, true, true],
       ],
+      calendarCheckedAt: null,
       expiration: availabilityRecord.expiration,
     }
 
@@ -119,19 +273,6 @@ describe('overlap', () => {
       ])
     })
 
-    it('should reduce freeCount when a user is calendar-busy', () => {
-      // 16:00-16:30 local on 2025-09-06 (date2) overlaps only slot0 ([16:00-17:00)), not slot1
-      // ([16:30-17:30)) or slot2 ([17:00-18:00)).
-      const busyGrids = {
-        [availabilityRecord.userId]: buildBusyGrid(session, [
-          { start: '2025-09-06T21:00:00.000Z', end: '2025-09-06T21:30:00.000Z' },
-        ]),
-      }
-      const grid = computeGrid(session, [availabilityRecord], busyGrids)
-      expect(grid.cells[2][0].freeCount).toBe(0) // was free per the raw grid, now calendar-busy
-      expect(grid.cells[2][1].freeCount).toBe(1) // unaffected
-    })
-
     it('should size each date row of cells independently when the poll has an override', () => {
       const pollWithOverride: PollRecord = {
         ...session,
@@ -153,6 +294,7 @@ describe('overlap', () => {
       const users: AvailabilityRecord[] = ['user-a', 'user-b', 'user-c'].map((userId) => ({
         userId,
         free: diagonal,
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }))
 
@@ -168,7 +310,6 @@ describe('overlap', () => {
           endMinute: 1020,
           freeCount: 3,
           freeUserIds: ['user-a', 'user-b', 'user-c'],
-          excludedByCalendar: [],
         },
         {
           dateIndex: 1,
@@ -178,7 +319,6 @@ describe('overlap', () => {
           endMinute: 1050,
           freeCount: 3,
           freeUserIds: ['user-a', 'user-b', 'user-c'],
-          excludedByCalendar: [],
         },
         {
           dateIndex: 2,
@@ -188,7 +328,6 @@ describe('overlap', () => {
           endMinute: 1080,
           freeCount: 3,
           freeUserIds: ['user-a', 'user-b', 'user-c'],
-          excludedByCalendar: [],
         },
       ])
     })
@@ -207,11 +346,13 @@ describe('overlap', () => {
       const userA: AvailabilityRecord = {
         userId: 'user-a',
         free: [[true], [true]],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
       const userB: AvailabilityRecord = {
         userId: 'user-b',
         free: [[true], [true]],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
 
@@ -229,6 +370,7 @@ describe('overlap', () => {
           [false, true, false],
           [false, false, false],
         ],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
       const userB: AvailabilityRecord = { ...userA, userId: 'user-b' }
@@ -239,6 +381,7 @@ describe('overlap', () => {
           [true, false, false],
           [false, false, true],
         ],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
 
@@ -257,7 +400,12 @@ describe('overlap', () => {
 
     it('should return fewer than maxRecommendations when the candidate pool is smaller', () => {
       const tinyPoll: PollRecord = { ...session, dates: ['2025-09-04'], endMinute: 1020 } // 1 date, 1 slot
-      const user: AvailabilityRecord = { userId: 'solo', free: [[true]], expiration: availabilityRecord.expiration }
+      const user: AvailabilityRecord = {
+        userId: 'solo',
+        free: [[true]],
+        calendarCheckedAt: null,
+        expiration: availabilityRecord.expiration,
+      }
 
       const result = findRecommendedMeetings(tinyPoll, [user])
 
@@ -271,14 +419,18 @@ describe('overlap', () => {
           endMinute: 1020,
           freeCount: 1,
           freeUserIds: ['solo'],
-          excludedByCalendar: [],
         },
       ])
     })
 
     it('should never recommend a slot where nobody is free', () => {
       const tinyPoll: PollRecord = { ...session, dates: ['2025-09-04'], endMinute: 1020 }
-      const user: AvailabilityRecord = { userId: 'solo', free: [[false]], expiration: availabilityRecord.expiration }
+      const user: AvailabilityRecord = {
+        userId: 'solo',
+        free: [[false]],
+        calendarCheckedAt: null,
+        expiration: availabilityRecord.expiration,
+      }
 
       expect(findRecommendedMeetings(tinyPoll, [user])).toEqual([])
     })
@@ -294,6 +446,7 @@ describe('overlap', () => {
       const user: AvailabilityRecord = {
         userId: 'solo',
         free: [[true], [false], [false]],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
 
@@ -301,31 +454,6 @@ describe('overlap', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0].freeCount).toBe(1)
-    })
-
-    it('should list users who marked themselves free but were excluded by a calendar conflict', () => {
-      const tinyPoll: PollRecord = { ...session, dates: ['2025-09-04'], endMinute: 1020 } // 1 date, 1 slot (16:00-17:00)
-      const solo: AvailabilityRecord = { userId: 'solo', free: [[true]], expiration: availabilityRecord.expiration }
-      const other: AvailabilityRecord = { userId: 'other', free: [[true]], expiration: availabilityRecord.expiration }
-      const busyGrids = {
-        solo: buildBusyGrid(tinyPoll, [{ start: '2025-09-04T21:00:00.000Z', end: '2025-09-04T22:00:00.000Z' }]),
-      }
-
-      const result = findRecommendedMeetings(tinyPoll, [solo, other], 3, busyGrids)
-
-      // tinyPoll: startMinute 960, endMinute 1020, slotMinutes 60 -> single slot [960,1020)
-      expect(result).toEqual([
-        {
-          dateIndex: 0,
-          slotIndex: 0,
-          date: '2025-09-04',
-          startMinute: 960,
-          endMinute: 1020,
-          freeCount: 1,
-          freeUserIds: ['other'],
-          excludedByCalendar: ['solo'],
-        },
-      ])
     })
 
     it('should respect a narrower override window when building candidates for that date', () => {
@@ -340,6 +468,7 @@ describe('overlap', () => {
           [true, true, true],
           [true, true, true],
         ],
+        calendarCheckedAt: null,
         expiration: availabilityRecord.expiration,
       }
       const result = findRecommendedMeetings(pollWithOverride, [allFree], 10)
@@ -360,7 +489,6 @@ describe('overlap', () => {
           endMinute: 1050,
           freeCount: 2,
           freeUserIds: ['user-a', 'user-b'],
-          excludedByCalendar: ['user-c'],
         },
       ]
       expect(pickBestSlot(recommendedMeetings)).toEqual({

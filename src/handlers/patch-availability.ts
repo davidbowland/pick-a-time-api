@@ -2,6 +2,7 @@ import { NotFoundError, ValidationError } from '../errors'
 import { getAvailability, getSession, updateAvailability } from '../services/dynamodb'
 import { buildSlots } from '../services/slots'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
+import { stripCalendarCheckedAt } from '../utils/availability'
 import { parseAvailabilityPatch } from '../utils/events'
 import { log, logError, redactEvent } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
@@ -31,7 +32,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     }
 
     await updateAvailability(sessionId, userId, availability)
-    return { ...status.OK, body: JSON.stringify(availability) }
+    return { ...status.OK, body: JSON.stringify(stripCalendarCheckedAt(availability)) }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND
     if (error instanceof ValidationError)

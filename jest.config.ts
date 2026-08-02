@@ -165,7 +165,11 @@ export default {
   // ],
 
   // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-  testPathIgnorePatterns: ['__mocks__'],
+  // `.worktrees/` holds checkouts of other branches. Jest does not read .gitignore, so without this
+  // it collects their test files too, running this branch's `src` against another branch's
+  // expectations. That also fails the husky pre-commit hook spuriously, and lint-staged responds by
+  // stashing the entire repo -- which can destroy a concurrent session's uncommitted work.
+  testPathIgnorePatterns: ['__mocks__', '<rootDir>/\\.worktrees/'],
 
   // The regexp pattern or array of patterns that Jest uses to detect test files
   // testRegex: [],

@@ -32,6 +32,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     }
 
     const availability: AvailabilityRecord = {
+      calendarCheckedAt: null,
       expiration: session.expiration,
       free: emptyGrid(buildSlots(session).map((slots) => slots.length)),
       userId,

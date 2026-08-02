@@ -731,28 +731,17 @@ Resources:
       Handler: src/handlers/get-overlap.handler
       MemorySize: 1536
       Description: pick-a-time-api get session overlap and recommended meetings
+      # This route is Authorizer: NONE -- anyone holding a poll link reaches it. It used to sync
+      # calendars during the read, which is why it held SSM and KMS grants. That code is gone, so
+      # the grants go with it: an unauthenticated function must not retain the ability to decrypt
+      # calendar refresh tokens or read the Google client secret.
       Policies:
         - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref SessionsTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
-            - Effect: Allow
-              Action:
-                - kms:Decrypt
-              Resource:
-                - !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
-                - !GetAtt CalendarTokenKey.Arn
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
-          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
-          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
       Events:
         Http:
           Type: HttpApi
@@ -918,6 +907,75 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PostCalendarConnectLogGroup
 
+  PostCalendarSyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/post-calendar-sync.handler
+      MemorySize: 512
+      Description: pick-a-time-api mark booked hours busy from Google Calendar
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource:
+                - !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
+                - !GetAtt CalendarTokenKey.Arn
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
+          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/users/{userId}/calendar/sync
+            Method: post
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Timeout: 30
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/post-calendar-sync.ts
+
+  PostCalendarSyncLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PostCalendarSyncFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  PostCalendarSyncLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref PostCalendarSyncLogGroup
+
   GetCalendarCallbackFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -993,6 +1051,60 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref GetCalendarCallbackLogGroup
 
+  GetCalendarFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/get-calendar.handler
+      MemorySize: 512
+      Description: pick-a-time-api get Google Calendar connection state
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBReadPolicy:
+            TableName: !Ref SessionsTable
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /calendar
+            Method: get
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Timeout: 10
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/get-calendar.ts
+
+  GetCalendarLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetCalendarFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  GetCalendarLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref GetCalendarLogGroup
+
   DeleteCalendarFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1017,7 +1129,7 @@ Resources:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
-            Path: /sessions/{sessionId}/users/{userId}/calendar
+            Path: /calendar
             Method: delete
             Auth:
               Authorizer: CognitoAuthorizer

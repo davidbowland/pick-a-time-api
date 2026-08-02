@@ -90,6 +90,27 @@ describe('calendar-sync', () => {
       expect(googleCalendar.fetchFreeBusy).toHaveBeenCalled()
     })
 
+    it('should refetch from Google when forced, even if the cache is fresh', async () => {
+      const fresh = {
+        ...calendarAccountRecord,
+        lastSyncedAt: Math.floor(1728547851000 / 1000),
+        syncedRange: { start: '2025-09-04', end: '2025-09-06' },
+      }
+      await syncCalendarAccountForPoll(fresh, session, () => 1728547851000, true)
+      expect(googleCalendar.fetchFreeBusy).toHaveBeenCalled()
+    })
+
+    it('should serve the cache when not forced and the cache is fresh', async () => {
+      const fresh = {
+        ...calendarAccountRecord,
+        lastSyncedAt: Math.floor(1728547851000 / 1000),
+        syncedRange: { start: '2025-09-04', end: '2025-09-06' },
+      }
+      const result = await syncCalendarAccountForPoll(fresh, session, () => 1728547851000, false)
+      expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+      expect(result).toEqual(fresh)
+    })
+
     it('should mark status error and keep serving cached busyIntervals on refresh failure', async () => {
       const staleNow = () => calendarAccountRecord.lastSyncedAt * 1000 + 3_600_000
       jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(new Error('invalid_grant'))
@@ -101,7 +122,7 @@ describe('calendar-sync', () => {
       expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' }))
     })
 
-    it('should update lastSyncedAt on failure so a previously-synced account is not retried again within the freshness window', async () => {
+    it('should stamp lastSyncedAt on failure and still retry on the next check', async () => {
       const staleNow = () => calendarAccountRecord.lastSyncedAt * 1000 + 3_600_000 // 1 hour later, past the 30-min threshold
       jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(new Error('invalid_grant'))
 
@@ -110,14 +131,31 @@ describe('calendar-sync', () => {
       expect(failed.status).toBe('error')
       expect(failed.lastSyncedAt).toBe(Math.floor(staleNow() / 1000))
 
-      // A second read shortly after the failure (well within the freshness window measured from
-      // the NEW lastSyncedAt) must not attempt the sync again.
+      // The stamp dates the attempt; it must not gate the retry. A check a second later reaches
+      // Google again. Before this, the stamp made the errored record look fresh, so the next check
+      // short-circuited and handed back the SAME errored record -- the sync handler turns that into
+      // a 502 without ever contacting Google, and, because a 502 never stamps calendarCheckedAt,
+      // the poll's one automatic first check stayed blocked for the whole freshness window.
       const shortlyAfterFailure = () => staleNow() + 1_000
       const result = await syncCalendarAccountForPoll(failed, session, shortlyAfterFailure)
 
-      expect(result).toEqual(failed)
-      expect(googleCalendar.refreshAccessToken).toHaveBeenCalledTimes(1)
-      expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+      expect(googleCalendar.refreshAccessToken).toHaveBeenCalledTimes(2)
+      expect(googleCalendar.fetchFreeBusy).toHaveBeenCalled()
+      expect(result.status).toBe('connected')
+    })
+
+    it('should retry an errored record even when its stamped lastSyncedAt is still fresh and the range is covered', async () => {
+      // Same record as the "serve the cache when fresh" case above in every respect but status.
+      // Status is what decides: a fresh SUCCESS is served from cache, a fresh ERROR is retried.
+      const erroredButFresh = { ...calendarAccountRecord, status: 'error' as const }
+      const rawInterval = { start: '2025-09-04T21:00:00.000Z', end: '2025-09-04T22:00:00.000Z' }
+      jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce([rawInterval])
+
+      const result = await syncCalendarAccountForPoll(erroredButFresh, session, freshNow)
+
+      expect(googleCalendar.fetchFreeBusy).toHaveBeenCalled()
+      expect(result.status).toBe('connected')
+      expect(result.busyIntervals).toEqual([rawInterval])
     })
 
     it('should sanitize an Axios-shaped refreshAccessToken failure before logging it, never logging config secrets', async () => {

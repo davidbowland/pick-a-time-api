@@ -55,6 +55,31 @@ export const buildBusyGrid = (poll: PollRecord, busyIntervals: { start: string; 
   })
 }
 
+export const markBusyHours = (
+  poll: PollRecord,
+  availability: AvailabilityRecord,
+  busyIntervals: { start: string; end: string }[],
+): { availability: AvailabilityRecord; markedBusyCount: number } => {
+  const busyGrid = buildBusyGrid(poll, busyIntervals)
+  let markedBusyCount = 0
+
+  // One-way by construction: a cell can only move from true to false here. `isFree && isBusy` is
+  // the sole path that writes anything, so no calendar response -- including one reporting an hour
+  // free -- can turn a cell back on.
+  const free = availability.free.map((row, dateIndex) =>
+    row.map((isFree, slotIndex) => {
+      const isBusy = busyGrid[dateIndex]?.[slotIndex] ?? false
+      if (isFree && isBusy) {
+        markedBusyCount += 1
+        return false
+      }
+      return isFree
+    }),
+  )
+
+  return { availability: { ...availability, free }, markedBusyCount }
+}
+
 export interface OverlapCell {
   dateIndex: number
   slotIndex: number
@@ -69,21 +94,14 @@ export interface OverlapGrid {
   bestSlot: { dateIndex: number; slotIndex: number; freeCount: number; freeUserIds: string[] }
 }
 
-const isBusyAt = (busyGrids: Record<string, BusyGrid>, userId: string, dateIndex: number, slotIndex: number): boolean =>
-  busyGrids[userId]?.[dateIndex]?.[slotIndex] ?? false
-
-export const computeGrid = (
-  poll: PollRecord,
-  availability: AvailabilityRecord[],
-  busyGrids: Record<string, BusyGrid> = {},
-): Pick<OverlapGrid, 'cells'> => {
+// Stored availability is the only input. Calendar busy time reaches the grid by having been written
+// into someone's own availability by the sync endpoint, never by being subtracted again here.
+export const computeGrid = (poll: PollRecord, availability: AvailabilityRecord[]): Pick<OverlapGrid, 'cells'> => {
   const slots = buildSlots(poll)
 
   const cells: OverlapCell[][] = poll.dates.map((_, dateIndex) =>
     slots[dateIndex].map((slot) => {
-      const freeUserIds = availability
-        .filter((a) => a.free[dateIndex][slot.slotIndex] && !isBusyAt(busyGrids, a.userId, dateIndex, slot.slotIndex))
-        .map((a) => a.userId)
+      const freeUserIds = availability.filter((a) => a.free[dateIndex][slot.slotIndex]).map((a) => a.userId)
       return {
         dateIndex,
         slotIndex: slot.slotIndex,
@@ -106,7 +124,6 @@ export interface RecommendedMeeting {
   endMinute: number
   freeCount: number
   freeUserIds: string[]
-  excludedByCalendar: string[]
 }
 
 interface Candidate {
@@ -117,7 +134,6 @@ interface Candidate {
   endMinute: number
   freeCount: number
   freeUserIds: string[]
-  excludedByCalendar: string[]
 }
 
 const isDiverseFromPicks = (candidate: Candidate, picks: Candidate[]): boolean =>
@@ -140,19 +156,13 @@ export const findRecommendedMeetings = (
   poll: PollRecord,
   availability: AvailabilityRecord[],
   maxRecommendations = 3,
-  busyGrids: Record<string, BusyGrid> = {},
 ): RecommendedMeeting[] => {
   const slots = buildSlots(poll)
 
   const candidates: Candidate[] = poll.dates
     .flatMap((date, dateIndex) =>
       slots[dateIndex].map((slot) => {
-        const freeUserIds = availability
-          .filter((a) => a.free[dateIndex][slot.slotIndex] && !isBusyAt(busyGrids, a.userId, dateIndex, slot.slotIndex))
-          .map((a) => a.userId)
-        const excludedByCalendar = availability
-          .filter((a) => a.free[dateIndex][slot.slotIndex] && isBusyAt(busyGrids, a.userId, dateIndex, slot.slotIndex))
-          .map((a) => a.userId)
+        const freeUserIds = availability.filter((a) => a.free[dateIndex][slot.slotIndex]).map((a) => a.userId)
         return {
           dateIndex,
           slotIndex: slot.slotIndex,
@@ -161,7 +171,6 @@ export const findRecommendedMeetings = (
           endMinute: slot.endMinute,
           freeCount: freeUserIds.length,
           freeUserIds,
-          excludedByCalendar,
         }
       }),
     )

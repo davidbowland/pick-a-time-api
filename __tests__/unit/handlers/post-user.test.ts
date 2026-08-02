@@ -52,6 +52,15 @@ describe('post-user', () => {
       )
     })
 
+    it('should create the availability record with no calendar check recorded', async () => {
+      await handler(event)
+      expect(dynamodb.createUser).toHaveBeenCalledWith(
+        sessionId,
+        expect.anything(),
+        expect.objectContaining({ calendarCheckedAt: null }),
+      )
+    })
+
     it('should create a single-column-per-date grid when the poll does not use times', async () => {
       const datesOnlySession = {
         sessionId: 'abc123',
