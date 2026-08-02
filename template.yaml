@@ -42,6 +42,7 @@ Mappings:
       maxUsersPerSession: '20'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions
+      ssmParamPrefix: /pick-a-time
       zoneId: Z09477181IUYK36D4AQQV
     test:
       authDomain: pick-a-time-auth.bowland.link
@@ -53,6 +54,7 @@ Mappings:
       maxUsersPerSession: '20'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions-test
+      ssmParamPrefix: /pick-a-time-test
       zoneId: Z01312547RGU1BYKIJXY
 
 Globals:
@@ -68,6 +70,7 @@ Globals:
     Environment:
       Variables:
         NODE_OPTIONS: '--disable-warning DEP0040'
+        SSM_PARAM_PREFIX: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
 
 Resources:
   # API Gateway
@@ -227,7 +230,9 @@ Resources:
             - Effect: Allow
               Action:
                 - ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/recaptcha-secret-key'
+              Resource: !Sub
+                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/recaptcha-secret-key'
+                - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
             - Effect: Allow
               Action:
                 - kms:Decrypt
@@ -292,7 +297,9 @@ Resources:
             - Effect: Allow
               Action:
                 - ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/recaptcha-secret-key'
+              Resource: !Sub
+                - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/recaptcha-secret-key'
+                - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
             - Effect: Allow
               Action:
                 - kms:Decrypt
@@ -856,8 +863,12 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-id'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/oauth-state-secret'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
             - Effect: Allow
               Action:
                 - kms:Decrypt
@@ -924,8 +935,12 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-id'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-secret'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
             - Effect: Allow
               Action:
                 - kms:Decrypt
@@ -993,9 +1008,15 @@ Resources:
               Action:
                 - ssm:GetParameter
               Resource:
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-id'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/google-client-secret'
-                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pick-a-time/oauth-state-secret'
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-id'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-secret'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/oauth-state-secret'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
             - Effect: Allow
               Action:
                 - kms:Decrypt

@@ -25,15 +25,22 @@ export const startEndMinuteStep = 15
 export const maxPollDateRangeDays = 365 // the exact max offset (in days, inclusive) from today a poll date may be -- single source of truth for both the events.ts validation and this disclosed value
 export const maxPollOverrideGroups = 10 // max entries in a TimedPoll's overrides array
 
+// SSM
+
+// Both environments deploy into the same AWS account, so the parameter tree is what keeps their
+// secrets apart: prod reads /pick-a-time, test reads /pick-a-time-test. The two hold different
+// Google OAuth clients, since test's belongs to a GCP project that stays in Testing status.
+const ssmParamPrefix = process.env.SSM_PARAM_PREFIX as string
+
 // reCAPTCHA
 
-export const recaptchaSecretKeyParamName = '/pick-a-time/recaptcha-secret-key'
+export const recaptchaSecretKeyParamName = `${ssmParamPrefix}/recaptcha-secret-key`
 
 // Calendar sync
 
-export const googleCalendarClientIdParamName = '/pick-a-time/google-client-id'
-export const googleCalendarClientSecretParamName = '/pick-a-time/google-client-secret'
-export const oauthStateSecretParamName = '/pick-a-time/oauth-state-secret'
+export const googleCalendarClientIdParamName = `${ssmParamPrefix}/google-client-id`
+export const googleCalendarClientSecretParamName = `${ssmParamPrefix}/google-client-secret`
+export const oauthStateSecretParamName = `${ssmParamPrefix}/oauth-state-secret`
 export const kmsCalendarKeyId = process.env.KMS_CALENDAR_KEY_ID as string
 export const googleCalendarRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI as string
 export const webAppUrl = process.env.WEB_APP_URL as string

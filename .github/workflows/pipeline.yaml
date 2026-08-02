@@ -78,8 +78,8 @@ jobs:
       - name: Deploy to feature stack in the testing account
         shell: bash
         run: |
-          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
-          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time-test/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time-test/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
           echo "::add-mask::${GOOGLE_CLIENT_ID}"
           echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
           sam deploy --stack-name ${TESTING_STACK_NAME} \
@@ -192,8 +192,8 @@ jobs:
 
       - name: Deploy to testing account
         run: |
-          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
-          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_ID=$(aws ssm get-parameter --name /pick-a-time-test/google-client-id --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
+          GOOGLE_CLIENT_SECRET=$(aws ssm get-parameter --name /pick-a-time-test/google-client-secret --with-decryption --region ${TESTING_REGION} --query Parameter.Value --output text)
           echo "::add-mask::${GOOGLE_CLIENT_ID}"
           echo "::add-mask::${GOOGLE_CLIENT_SECRET}"
           sam deploy --stack-name ${TESTING_STACK_NAME} \

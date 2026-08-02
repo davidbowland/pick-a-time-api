@@ -8,6 +8,10 @@ process.env.MAX_POLL_DATES = '90'
 
 process.env.MAX_USERS_PER_SESSION = '10'
 
+// SSM
+
+process.env.SSM_PARAM_PREFIX = '/pick-a-time'
+
 // reCAPTCHA
 
 // Calendar sync
