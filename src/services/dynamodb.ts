@@ -124,8 +124,9 @@ export const getAllAvailability = async (sessionId: string): Promise<Availabilit
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
-  // `Data` is written as `{ S: JSON.stringify(...) }` by putAvailability, so `.S` is always present
-  // even though the SDK's AttributeValue union types it as optional.
+  // `Data` on an AVAIL# row is written as `{ S: JSON.stringify(...) }` by createAvailability,
+  // updateAvailability, and createUser's second Put — the only three writers — so `.S` is always
+  // present even though the SDK's AttributeValue union types it as optional.
   return (response.Items ?? []).map((item) => parseAvailability(item.Data.S!))
 }
 
@@ -156,8 +157,9 @@ export const getAllUsers = async (sessionId: string): Promise<UserRecord[]> => {
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
-  // `Data` is written as `{ S: JSON.stringify(...) }` by createUser, so `.S` is always present
-  // even though the SDK's AttributeValue union types it as optional.
+  // `Data` on a USER# row is written as `{ S: JSON.stringify(...) }` by createUser and updateUser —
+  // the only two writers — so `.S` is always present even though the SDK's AttributeValue union
+  // types it as optional.
   return (response.Items ?? []).map((item) => JSON.parse(item.Data.S!))
 }
 
