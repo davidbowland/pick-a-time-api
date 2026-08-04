@@ -1,6 +1,3 @@
-import AWSXRay from 'aws-xray-sdk-core'
-import https from 'https'
-
 import { APIGatewayProxyEventV2 } from '../types'
 
 export const log = (...args: any[]): unknown => console.log(...args)
@@ -33,11 +30,6 @@ export const sanitizeErrorForLogging = (error: unknown): unknown => {
 }
 
 export const logWarn = (...args: any[]): unknown => console.warn(...args)
-
-export const xrayCapture = (x: any): any => (process.env.AWS_SAM_LOCAL === 'true' ? x : AWSXRay.captureAWSv3Client(x))
-
-export const xrayCaptureHttps = (): void =>
-  process.env.AWS_SAM_LOCAL === 'true' ? undefined : AWSXRay.captureHTTPsGlobal(https)
 
 // Headers carrying live credentials: the Cognito bearer JWT and the single-use reCAPTCHA
 // verification token. Compared case-insensitively since API Gateway may not normalize casing

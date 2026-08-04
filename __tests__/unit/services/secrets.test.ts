@@ -12,9 +12,6 @@ jest.mock('@aws-sdk/client-ssm', () => ({
     send: (...args: any[]) => mockSend(...args),
   })),
 }))
-jest.mock('@utils/logging', () => ({
-  xrayCapture: jest.fn().mockImplementation((x) => x),
-}))
 
 const TTL_MS = 10 * 60 * 1000
 

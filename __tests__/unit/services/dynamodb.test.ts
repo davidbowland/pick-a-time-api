@@ -44,9 +44,6 @@ jest.mock('@aws-sdk/client-dynamodb', () => ({
   TransactWriteItemsCommand: jest.fn().mockImplementation((x) => x),
   UpdateItemCommand: jest.fn().mockImplementation((x) => x),
 }))
-jest.mock('@utils/logging', () => ({
-  xrayCapture: jest.fn().mockImplementation((x) => x),
-}))
 
 describe('dynamodb', () => {
   describe('getSession', () => {

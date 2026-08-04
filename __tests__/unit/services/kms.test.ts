@@ -8,9 +8,6 @@ jest.mock('@aws-sdk/client-kms', () => ({
     send: (...args: any[]) => mockSend(...args),
   })),
 }))
-jest.mock('@utils/logging', () => ({
-  xrayCapture: jest.fn().mockImplementation((x) => x),
-}))
 
 describe('kms', () => {
   describe('encryptRefreshToken', () => {

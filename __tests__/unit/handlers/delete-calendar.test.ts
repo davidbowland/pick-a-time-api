@@ -14,7 +14,6 @@ jest.mock('@utils/logging', () => ({
   ...jest.requireActual('@utils/logging'),
   log: jest.fn(),
   logError: jest.fn(),
-  xrayCapture: jest.fn((x: unknown) => x),
 }))
 
 describe('delete-calendar', () => {

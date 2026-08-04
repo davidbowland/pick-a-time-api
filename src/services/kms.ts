@@ -1,9 +1,8 @@
 import { DecryptCommand, EncryptCommand, KMS } from '@aws-sdk/client-kms'
 
 import { kmsCalendarKeyId } from '../config'
-import { xrayCapture } from '../utils/logging'
 
-const kms = xrayCapture(new KMS({}))
+const kms = new KMS({})
 
 export const encryptRefreshToken = async (plaintext: string): Promise<string> => {
   const response = await kms.send(

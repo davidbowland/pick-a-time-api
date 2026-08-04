@@ -11,8 +11,6 @@ jest.mock('@utils/logging', () => ({
   log: jest.fn(),
   logError: jest.fn(),
   redactEvent: jest.fn((event: unknown) => event),
-  xrayCapture: jest.fn((x: unknown) => x),
-  xrayCaptureHttps: jest.fn(),
 }))
 
 describe('get-users', () => {

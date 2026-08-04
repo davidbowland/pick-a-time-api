@@ -62,7 +62,6 @@ Globals:
     Runtime: nodejs24.x
     Architectures:
       - x86_64
-    Tracing: Active
     Tags:
       'created-by': 'pick-a-time-api'
       'created-for': 'pick-a-time'

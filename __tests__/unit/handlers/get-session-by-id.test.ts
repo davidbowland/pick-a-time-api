@@ -10,7 +10,6 @@ jest.mock('@utils/logging', () => ({
   log: jest.fn(),
   logError: jest.fn(),
   redactEvent: jest.fn((event: unknown) => event),
-  xrayCapture: jest.fn((x: unknown) => x),
 }))
 
 describe('get-session-by-id', () => {

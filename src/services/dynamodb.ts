@@ -13,9 +13,8 @@ import {
 import { dynamodbTableName } from '../config'
 import { ConflictError, NotFoundError } from '../errors'
 import { AvailabilityRecord, CalendarAccountRecord, PollRecord, SessionWithUsers, UserRecord } from '../types'
-import { xrayCapture } from '../utils/logging'
 
-const dynamodb = xrayCapture(new DynamoDB({ apiVersion: '2012-08-10' }))
+const dynamodb = new DynamoDB({ apiVersion: '2012-08-10' })
 
 /* Session (Poll) */
 
@@ -29,7 +28,10 @@ export const getSession = async (sessionId: string): Promise<SessionWithUsers> =
     throw new NotFoundError('Session not found')
   }
   const session: PollRecord = JSON.parse(response.Item.Data.S)
-  const users = response.Item.users?.L?.map((item: { S: string }) => item.S) ?? []
+  // The SDK's AttributeValue is a union over every attribute type, so `.S` reads as
+  // `string | undefined`. createUser below is the only writer of this list and appends
+  // `{ S: user.userId }`, so the string is always present.
+  const users = response.Item.users?.L?.map((item) => item.S!) ?? []
   return { session, users }
 }
 
@@ -122,7 +124,9 @@ export const getAllAvailability = async (sessionId: string): Promise<Availabilit
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
-  return (response.Items ?? []).map((item: { Data: { S: string } }) => parseAvailability(item.Data.S))
+  // `Data` is written as `{ S: JSON.stringify(...) }` by putAvailability, so `.S` is always present
+  // even though the SDK's AttributeValue union types it as optional.
+  return (response.Items ?? []).map((item) => parseAvailability(item.Data.S!))
 }
 
 /* Users */
@@ -152,7 +156,9 @@ export const getAllUsers = async (sessionId: string): Promise<UserRecord[]> => {
     TableName: dynamodbTableName,
   })
   const response = await dynamodb.send(command)
-  return (response.Items ?? []).map((item: { Data: { S: string } }) => JSON.parse(item.Data.S))
+  // `Data` is written as `{ S: JSON.stringify(...) }` by createUser, so `.S` is always present
+  // even though the SDK's AttributeValue union types it as optional.
+  return (response.Items ?? []).map((item) => JSON.parse(item.Data.S!))
 }
 
 export const createUser = async (

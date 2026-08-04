@@ -6,9 +6,8 @@ import {
   oauthStateSecretParamName,
   recaptchaSecretKeyParamName,
 } from '../config'
-import { xrayCapture } from '../utils/logging'
 
-const ssm = xrayCapture(new SSM({}))
+const ssm = new SSM({})
 
 const CACHE_TTL_MS = 10 * 60 * 1000
 
