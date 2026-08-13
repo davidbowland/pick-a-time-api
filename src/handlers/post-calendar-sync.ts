@@ -38,7 +38,7 @@ const syncOrNull = async (
   }
 }
 
-export const handler = async (
+export const postCalendarSync = async (
   event: APIGatewayProxyEventV2,
   now: () => number = Date.now,
 ): Promise<APIGatewayProxyResultV2> => {
@@ -125,3 +125,10 @@ export const handler = async (
     return status.INTERNAL_SERVER_ERROR
   }
 }
+
+// Lambda calls the exported handler as handler(event, context), so the injected clock cannot be the
+// second parameter of the thing template.yaml points at -- Context is not callable, and the first
+// now() (inside syncCalendarAccountForPoll) threw "now is not a function" on every real request.
+// The wrapper keeps the injection point one level in, where only tests reach it.
+export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> =>
+  postCalendarSync(event)

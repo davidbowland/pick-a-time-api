@@ -9,7 +9,7 @@ import {
 } from '../__mocks__'
 import { NotFoundError } from '@errors'
 import eventJson from '@events/post-calendar-sync.json'
-import { handler } from '@handlers/post-calendar-sync'
+import { handler, postCalendarSync } from '@handlers/post-calendar-sync'
 import * as calendarSync from '@services/calendar-sync'
 import * as dynamodb from '@services/dynamodb'
 import { APIGatewayProxyEventV2 } from '@types'
@@ -56,9 +56,9 @@ describe('post-calendar-sync', () => {
     jest.mocked(calendarSync).syncCalendarAccountForPoll.mockResolvedValue(calendarAccountRecord)
   })
 
-  describe('handler', () => {
+  describe('postCalendarSync', () => {
     it('should mark busy hours and report the count', async () => {
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
       const body = JSON.parse(result.body as string)
@@ -84,7 +84,7 @@ describe('post-calendar-sync', () => {
     })
 
     it('should stamp calendarCheckedAt on the saved record and echo it back', async () => {
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       const saved = jest.mocked(dynamodb).updateAvailability.mock.calls[0][2]
       expect(saved.calendarCheckedAt).toBe(Math.floor(nowMs / 1000))
@@ -92,7 +92,7 @@ describe('post-calendar-sync', () => {
     })
 
     it('should ask for a cached sync when the caller did not force one', async () => {
-      await handler(event, now)
+      await postCalendarSync(event, now)
 
       expect(calendarSync.syncCalendarAccountForPoll).toHaveBeenCalledWith(
         calendarAccountRecord,
@@ -105,7 +105,7 @@ describe('post-calendar-sync', () => {
     it('should skip when the poll was already checked and force is false', async () => {
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({ ...allFree(), calendarCheckedAt: 1_728_547_000 })
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
       const body = JSON.parse(result.body as string)
@@ -121,7 +121,7 @@ describe('post-calendar-sync', () => {
       const alreadyChecked = { ...allFree(), calendarCheckedAt: 1_728_547_000 }
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce(alreadyChecked)
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(JSON.parse(result.body as string).availability).toEqual(alreadyChecked)
       expect(JSON.parse(result.body as string).lastSyncedAt).toBe(calendarAccountRecord.lastSyncedAt)
@@ -131,7 +131,7 @@ describe('post-calendar-sync', () => {
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({ ...allFree(), calendarCheckedAt: 1_728_547_000 })
       const forced = { ...event, body: JSON.stringify({ force: true }) }
 
-      const result = await handler(forced as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(forced as APIGatewayProxyEventV2, now)
 
       const body = JSON.parse(result.body as string)
       expect(body.applied).toBe(true)
@@ -149,7 +149,7 @@ describe('post-calendar-sync', () => {
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({ ...allFree(), calendarCheckedAt: 1_728_547_000 })
       const garbled = { ...event, body: 'not json at all' }
 
-      const result = await handler(garbled as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(garbled as APIGatewayProxyEventV2, now)
 
       expect(JSON.parse(result.body as string).applied).toBe(false)
       expect(calendarSync.syncCalendarAccountForPoll).not.toHaveBeenCalled()
@@ -158,7 +158,7 @@ describe('post-calendar-sync', () => {
     it('should treat a missing body as an unforced check', async () => {
       const bodyless = { ...event, body: undefined }
 
-      const result = await handler(bodyless as unknown as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(bodyless as unknown as APIGatewayProxyEventV2, now)
 
       expect(JSON.parse(result.body as string).applied).toBe(true)
       expect(calendarSync.syncCalendarAccountForPoll).toHaveBeenCalledWith(
@@ -173,7 +173,7 @@ describe('post-calendar-sync', () => {
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({ ...allFree(), calendarCheckedAt: 1_728_547_000 })
       const sneaky = { ...event, body: JSON.stringify({ force: 'yes' }) }
 
-      const result = await handler(sneaky as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(sneaky as APIGatewayProxyEventV2, now)
 
       expect(JSON.parse(result.body as string).applied).toBe(false)
     })
@@ -181,7 +181,7 @@ describe('post-calendar-sync', () => {
     it('should return 400 when there is no connected calendar', async () => {
       jest.mocked(dynamodb).getCalendarAccount.mockResolvedValueOnce(null)
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 400 }))
       expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
@@ -190,7 +190,7 @@ describe('post-calendar-sync', () => {
     it('should return 400 without a Google identity', async () => {
       const anonymous = { ...event, requestContext: { ...event.requestContext, authorizer: undefined } }
 
-      const result = await handler(anonymous as unknown as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(anonymous as unknown as APIGatewayProxyEventV2, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 400 }))
       expect(dynamodb.getCalendarAccount).not.toHaveBeenCalled()
@@ -203,7 +203,7 @@ describe('post-calendar-sync', () => {
       // connected a calendar -- and write the ATTACKER's busy hours onto the victim's grid.
       jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-sub-victim' })
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
       // The victim's availability is never even read, so no branch below -- neither the skip path
@@ -221,7 +221,7 @@ describe('post-calendar-sync', () => {
       // the caller's sub onto it would let anyone claim any anonymous participant.
       jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: null })
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
       expect(calendarSync.syncCalendarAccountForPoll).not.toHaveBeenCalled()
@@ -232,7 +232,7 @@ describe('post-calendar-sync', () => {
     it('should return 404 when the poll does not exist', async () => {
       jest.mocked(dynamodb).getSession.mockRejectedValueOnce(new NotFoundError('Session not found'))
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
     })
@@ -240,7 +240,7 @@ describe('post-calendar-sync', () => {
     it('should return 404 when the poll has expired', async () => {
       jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: { ...session, expiration: 1 }, users: [] })
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 404 }))
       expect(calendarSync.syncCalendarAccountForPoll).not.toHaveBeenCalled()
@@ -255,7 +255,7 @@ describe('post-calendar-sync', () => {
         .mocked(calendarSync)
         .syncCalendarAccountForPoll.mockResolvedValueOnce({ ...calendarAccountRecord, status: 'error' })
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 502 }))
       expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
@@ -268,7 +268,7 @@ describe('post-calendar-sync', () => {
         .syncCalendarAccountForPoll.mockResolvedValueOnce({ ...calendarAccountRecord, status: 'error' })
       const forced = { ...event, body: JSON.stringify({ force: true }) }
 
-      const result = await handler(forced as APIGatewayProxyEventV2, now)
+      const result = await postCalendarSync(forced as APIGatewayProxyEventV2, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 502 }))
       expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
@@ -277,7 +277,7 @@ describe('post-calendar-sync', () => {
     it('should return 502 when the sync throws', async () => {
       jest.mocked(calendarSync).syncCalendarAccountForPoll.mockRejectedValueOnce(new Error('Google unavailable'))
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 502 }))
       expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
@@ -286,9 +286,30 @@ describe('post-calendar-sync', () => {
     it('should return 500 when the write fails', async () => {
       jest.mocked(dynamodb).updateAvailability.mockRejectedValueOnce(new Error('DynamoDB unavailable'))
 
-      const result = await handler(event, now)
+      const result = await postCalendarSync(event, now)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
+    })
+  })
+
+  describe('handler', () => {
+    // Lambda invokes an exported handler as handler(event, context). Anything the handler accepts in
+    // that second slot receives the Context object in production, whatever its declared type says --
+    // so the clock cannot live there. This suite is the only place the real calling convention is
+    // exercised; every test above injects the clock through the inner function.
+    const lambdaContext = { awsRequestId: 'CBfV4hGMIAMEPZw=', functionName: 'post-calendar-sync' }
+
+    it('should ignore the second argument Lambda passes it', async () => {
+      const result = await (
+        handler as (
+          event: APIGatewayProxyEventV2,
+          context: unknown,
+        ) => Promise<{
+          statusCode: number
+        }>
+      )(event, lambdaContext)
+
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
     })
   })
 })
