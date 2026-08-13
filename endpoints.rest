@@ -221,6 +221,11 @@ GET {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 # Valid slotIndex range depends on the target date: derive it from slots[dateIndex].length (GET
 # /sessions/{sessionId}), not a single shared count -- an out-of-range slotIndex for that date's own
 # window returns 400 even if it would be in range for a different date in the same poll.
+# Authenticated variant: PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability/authed
+# (Cognito JWT). Same write, plus one rule: it answers 403 if the participant is linked to a
+# different Google account. Unlike PATCH .../users/{userId}/authed it never LINKS an unclaimed
+# participant -- painting is not the act of saying who you are. Signed-in clients should use it so
+# they find out early, rather than painting a grid they will be refused the calendar on.
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/availability
 Content-Type: application/json
 
@@ -230,6 +235,7 @@ Content-Type: application/json
 
 # Response 200: the full updated availability record, same shape as GET .../availability
 # Response 400: invalid cells (out-of-bounds dateIndex/slotIndex, non-boolean value)
+# Response 403: authed variant only — the participant is linked to a different Google account
 # Response 404: session or user not found
 
 ###

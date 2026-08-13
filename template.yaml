@@ -845,6 +845,60 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref PatchAvailabilityLogGroup
 
+  PatchAvailabilityAuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/patch-availability.handler
+      MemorySize: 1536
+      Description: pick-a-time-api patch user availability (authenticated)
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/users/{userId}/availability/authed
+            Method: patch
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Timeout: 60
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/patch-availability.ts
+
+  PatchAvailabilityAuthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PatchAvailabilityAuthFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  PatchAvailabilityAuthLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref PatchAvailabilityAuthLogGroup
+
   ## Calendar sync
 
   PostCalendarConnectFunction:

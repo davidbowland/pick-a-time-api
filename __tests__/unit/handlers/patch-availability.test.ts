@@ -1,4 +1,4 @@
-import { availabilityRecord, session, sessionId, userId } from '../__mocks__'
+import { availabilityRecord, session, sessionId, userId, userRecord } from '../__mocks__'
 import { NotFoundError } from '@errors'
 import eventJson from '@events/patch-availability.json'
 import { handler } from '@handlers/patch-availability'
@@ -141,5 +141,47 @@ describe('patch-availability', () => {
     const event = withBody({ cells: [{ dateIndex: 0, slotIndex: 0, value: true }] })
     const result = await handler(event)
     expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
+  })
+
+  // The authenticated route (.../availability/authed) reaches this same handler. Painting is the
+  // one write a voter makes constantly, so the ownership rule has to hold here too -- otherwise a
+  // signed-in person can be refused the calendar on a participant they are still filling in.
+  describe('signed in', () => {
+    const authedEvent = (body: unknown): APIGatewayProxyEventV2 =>
+      ({
+        ...withBody(body),
+        requestContext: { ...baseEvent.requestContext, authorizer: { jwt: { claims: { sub: 'google-123' } } } },
+      }) as unknown as APIGatewayProxyEventV2
+
+    const cells = { cells: [{ dateIndex: 0, slotIndex: 0, value: true }] }
+
+    it('should return FORBIDDEN when the participant is linked to a different Google account', async () => {
+      jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-sub-other' })
+      const result = await handler(authedEvent(cells))
+      expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
+      expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
+    })
+
+    it('should write when the caller owns the participant', async () => {
+      jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-123' })
+      const result = await handler(authedEvent(cells))
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+      expect(dynamodb.updateAvailability).toHaveBeenCalled()
+    })
+
+    // Painting is not the act that claims a participant -- signing in and identifying as somebody
+    // is (see patch-user). An unlinked participant stays unlinked here.
+    it('should write without linking an unclaimed participant', async () => {
+      jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: null })
+      const result = await handler(authedEvent(cells))
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+      expect(dynamodb.updateUser).not.toHaveBeenCalled()
+    })
+
+    // The unauthenticated route names no account, so it never reads the user record at all.
+    it('should not read the user record when the caller is anonymous', async () => {
+      await handler(withBody(cells))
+      expect(dynamodb.getUser).not.toHaveBeenCalled()
+    })
   })
 })
