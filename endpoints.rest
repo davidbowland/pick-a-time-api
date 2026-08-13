@@ -168,6 +168,11 @@ POST {{host}}/sessions/{{sessionId}}/users
 # Authenticated variant: PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}/authed (Cognito JWT).
 # On the authed variant, if the user isn't already linked to a Google account, this call links it
 # (googleSub set from the JWT) as a side effect — even though the request body only touches /name.
+# If the user is already linked to a DIFFERENT account, the authed variant answers 403. That is a
+# signal, not a wall: the unauthenticated route below patches any participant, because a poll link is
+# the only credential a voter has. It exists so a caller can find out that the participant it is
+# acting as belongs to somebody else — the fact the calendar routes refuse it for, and the one thing
+# GET /users cannot tell it, since googleSub is stripped from every response.
 
 PATCH {{host}}/sessions/{{sessionId}}/users/{{userId}}
 Content-Type: application/json
@@ -178,6 +183,7 @@ Content-Type: application/json
 
 # Response 200: updated user object
 # Response 400: disallowed op, disallowed path, name > 50 chars
+# Response 403: authed variant only — the participant is linked to a different Google account
 # Response 404: session or user not found
 
 ###

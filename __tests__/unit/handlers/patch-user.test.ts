@@ -62,16 +62,51 @@ describe('patch-user', () => {
     expect(result).toEqual(expect.objectContaining({ statusCode: 500 }))
   })
 
+  // The shared userRecord fixture carries googleSub: null, so the base `event` is an anonymous
+  // caller patching an unclaimed participant. These three cover the rest of the grid.
+  const authedEvent = {
+    ...event,
+    requestContext: { ...event.requestContext, authorizer: { jwt: { claims: { sub: 'google-123' } } } },
+  } as unknown as APIGatewayProxyEventV2
+
   it('should fill in googleSub from auth context when unset', async () => {
-    const authedEvent = {
-      ...event,
-      requestContext: { ...event.requestContext, authorizer: { jwt: { claims: { sub: 'google-123' } } } },
-    } as unknown as APIGatewayProxyEventV2
     await handler(authedEvent)
     expect(dynamodb.updateUser).toHaveBeenCalledWith(
       sessionId,
       userId,
       expect.objectContaining({ googleSub: 'google-123' }),
+    )
+  })
+
+  it('should return FORBIDDEN when the participant is linked to a different Google account', async () => {
+    jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-sub-other' })
+    const result = await handler(authedEvent)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 403 }))
+    expect(dynamodb.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('should leave the link alone when the caller already owns the participant', async () => {
+    jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-123' })
+    const result = await handler(authedEvent)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+    expect(dynamodb.updateUser).toHaveBeenCalledWith(
+      sessionId,
+      userId,
+      expect.objectContaining({ googleSub: 'google-123', name: 'Bright Heron' }),
+    )
+  })
+
+  // The same person on a second device, signed out there. An unauthenticated request names no
+  // account, so there is no mismatch to find -- and refusing it would lock somebody out of their
+  // own name on any device where they have not signed in.
+  it('should allow an unauthenticated patch of a linked participant', async () => {
+    jest.mocked(dynamodb).getUser.mockResolvedValueOnce({ ...userRecord, googleSub: 'google-sub-other' })
+    const result = await handler(event)
+    expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+    expect(dynamodb.updateUser).toHaveBeenCalledWith(
+      sessionId,
+      userId,
+      expect.objectContaining({ googleSub: 'google-sub-other', name: 'Bright Heron' }),
     )
   })
 })
