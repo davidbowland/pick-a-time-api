@@ -127,6 +127,75 @@ describe('post-calendar-sync', () => {
       expect(JSON.parse(result.body as string).lastSyncedAt).toBe(calendarAccountRecord.lastSyncedAt)
     })
 
+    // Connecting a calendar before painting anything is the natural order -- connecting is the
+    // thing that promises to save you the painting. markBusyHours writes on `isFree && isBusy`, so
+    // against a grid with nothing free a check cannot change a cell whatever the calendar holds.
+    // Stamping calendarCheckedAt for one used to spend the poll's only automatic check on it, and
+    // everything painted afterwards was then never checked at all.
+    const nothingFree = () => ({
+      ...availabilityRecord,
+      free: [
+        [false, false, false],
+        [false, false, false],
+        [false, false, false],
+      ],
+    })
+
+    it('should not spend the check when the grid has nothing to mark', async () => {
+      jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce(nothingFree())
+
+      const result = await postCalendarSync(event, now)
+
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+      const body = JSON.parse(result.body as string)
+      expect(body.applied).toBe(false)
+      expect(body.markedBusyCount).toBe(0)
+      expect(dynamodb.updateAvailability).not.toHaveBeenCalled()
+    })
+
+    it('should not call Google for a check that could not change anything', async () => {
+      jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce(nothingFree())
+
+      await postCalendarSync(event, now)
+
+      expect(calendarSync.syncCalendarAccountForPoll).not.toHaveBeenCalled()
+    })
+
+    it('should leave calendarCheckedAt unstamped so a later check still runs', async () => {
+      jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce(nothingFree())
+
+      const result = await postCalendarSync(event, now)
+
+      // The whole point: unstamped means the next unforced check is still allowed to reach Google.
+      expect(JSON.parse(result.body as string).availability.calendarCheckedAt).toBeNull()
+    })
+
+    it('should check normally once a single cell is free', async () => {
+      jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({
+        ...availabilityRecord,
+        free: [
+          [true, false, false],
+          [false, false, false],
+          [false, false, false],
+        ],
+      })
+
+      const result = await postCalendarSync(event, now)
+
+      expect(JSON.parse(result.body as string).applied).toBe(true)
+      expect(calendarSync.syncCalendarAccountForPoll).toHaveBeenCalled()
+    })
+
+    it('should decline an inert check even when forced', async () => {
+      // Forcing cannot make a check able to mark a cell that is not free.
+      jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce(nothingFree())
+
+      const result = await postCalendarSync({ ...event, body: JSON.stringify({ force: true }) }, now)
+
+      expect(JSON.parse(result.body as string).applied).toBe(false)
+      expect(calendarSync.syncCalendarAccountForPoll).not.toHaveBeenCalled()
+    })
+
     it('should run anyway when force is true', async () => {
       jest.mocked(dynamodb).getAvailability.mockResolvedValueOnce({ ...allFree(), calendarCheckedAt: 1_728_547_000 })
       const forced = { ...event, body: JSON.stringify({ force: true }) }

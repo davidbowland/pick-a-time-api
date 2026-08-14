@@ -34,10 +34,36 @@ const toBusyBlocks = (
     ]
   })
 
+// How much of a local date has to be booked before a dates-only poll calls that date busy.
+//
+// It used to demand a single block covering 0..1440 exactly. An all-day booking only lands on those
+// boundaries when the calendar it came from shares the poll's timezone: freeBusy answers in
+// instants, so a day that starts at midnight somewhere else arrives here split across two local
+// dates -- {D, 60..1440} and {D+1, 0..60} for a one-hour offset -- and neither half covers a whole
+// day. Somebody booked solid was left free, and only ever cross-timezone, which is why it went
+// unnoticed. Eighteen hours clears every real all-day booking offset by up to six, and sits well
+// above any timed commitment somebody would not call a full day. Offsets beyond six hours are still
+// missed; that is a known limit, not a solved case.
+const DATE_ONLY_BUSY_MINUTES = 18 * 60
+
+const unionCoverageMinutes = (blocks: { startMinute: number; endMinute: number }[]): number => {
+  const sorted = [...blocks].sort((a, b) => a.startMinute - b.startMinute)
+  let covered = 0
+  let cursor = 0
+  for (const block of sorted) {
+    const start = Math.max(block.startMinute, cursor)
+    if (block.endMinute > start) {
+      covered += block.endMinute - start
+      cursor = block.endMinute
+    }
+  }
+  return covered
+}
+
 const isSlotBusy = (poll: PollRecord, blocks: { startMinute: number; endMinute: number }[], slot: Slot): boolean =>
   poll.usesTimes
     ? blocks.some((block) => block.startMinute < slot.endMinute && block.endMinute > slot.startMinute)
-    : blocks.some((block) => block.startMinute <= 0 && block.endMinute >= 1440)
+    : unionCoverageMinutes(blocks) >= DATE_ONLY_BUSY_MINUTES
 
 export const buildBusyGrid = (poll: PollRecord, busyIntervals: { start: string; end: string }[]): BusyGrid => {
   const slots = buildSlots(poll)

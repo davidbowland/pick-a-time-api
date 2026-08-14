@@ -2,7 +2,13 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../errors'
 import { syncCalendarAccountForPoll } from '../services/calendar-sync'
 import { getAvailability, getCalendarAccount, getSession, getUser, updateAvailability } from '../services/dynamodb'
 import { markBusyHours } from '../services/overlap'
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, CalendarAccountRecord, PollRecord } from '../types'
+import {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyResultV2,
+  AvailabilityRecord,
+  CalendarAccountRecord,
+  PollRecord,
+} from '../types'
 import { extractAuthContext } from '../utils/auth'
 import { log, logError, redactEvent, sanitizeErrorForLogging } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
@@ -15,6 +21,13 @@ const parseForce = (body: string | undefined): boolean => {
     return false
   }
 }
+
+// markBusyHours writes on `isFree && isBusy` and nothing else, so against a grid with no free cell
+// a check cannot change anything whatever the calendar holds. Distinguishing "had nothing to mark"
+// from "found nothing to mark" is the whole point: only the former is safe to not count against the
+// poll's one automatic check, because a grid with nothing free contains no deliberate "I'm free
+// then" edit for a later check to overwrite.
+const hasFreeCell = (availability: AvailabilityRecord): boolean => availability.free.some((row) => row.some(Boolean))
 
 // Google is the one collaborator this handler cannot vouch for, so its failure gets its own return
 // path: a 502 says "the upstream calendar is down, try again", which a DynamoDB or code failure
@@ -77,6 +90,23 @@ export const postCalendarSync = async (
 
     const availability = await getAvailability(sessionId, userId)
     const force = parseForce(event.body)
+
+    // Answered before the checkedAt short-circuit below and before any Google call, because it is
+    // true regardless of either. Connecting a calendar before painting anything is the natural
+    // order -- connecting is the thing that promises to save you the painting -- and stamping
+    // calendarCheckedAt here is what used to spend the poll's one automatic check on a grid the
+    // calendar could not touch, leaving everything painted afterwards permanently unchecked.
+    if (!hasFreeCell(availability)) {
+      return {
+        ...status.OK,
+        body: JSON.stringify({
+          applied: false,
+          availability,
+          lastSyncedAt: account.lastSyncedAt,
+          markedBusyCount: 0,
+        }),
+      }
+    }
 
     // The server owns the "when does a check fire" rule. Nothing records which hours came from a
     // calendar, so an unforced re-check would silently undo a deliberate "I'm free then" edit with

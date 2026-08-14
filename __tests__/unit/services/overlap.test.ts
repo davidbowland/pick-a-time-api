@@ -55,6 +55,64 @@ describe('overlap', () => {
       expect(grid[0]).toEqual([false])
     })
 
+    // freeBusy answers in instants, so an all-day booking made in a different timezone arrives here
+    // split across two local dates, and neither half covers a whole day. Demanding exact midnight
+    // alignment left somebody booked solid marked free, and only ever cross-timezone.
+    const offsetPoll = (dates: string[]): PollRecord => ({
+      sessionId: 'abc123',
+      name: 'Trip planning',
+      dates,
+      usesTimes: false,
+      timezone: 'America/Chicago',
+      expiration: session.expiration,
+    })
+
+    it('should mark a date busy for an all-day booking offset by an hour', () => {
+      // A whole day in America/New_York: 2025-09-05T00:00-04:00 to 2025-09-06T00:00-04:00. Read in
+      // America/Chicago that runs 09-04 23:00 to 09-05 23:00 -- twenty-three hours of 09-05.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-04', '2025-09-05']), [
+        { start: '2025-09-05T04:00:00.000Z', end: '2025-09-06T04:00:00.000Z' },
+      ])
+      expect(grid[1]).toEqual([true])
+      // The one-hour tail on the previous day is not a booked day and must not read as one.
+      expect(grid[0]).toEqual([false])
+    })
+
+    it('should mark a date busy for an all-day booking offset by six hours', () => {
+      // A whole UTC day read in America/Chicago: 09-04 19:00 to 09-05 19:00 -- nineteen hours.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
+        { start: '2025-09-05T00:00:00.000Z', end: '2025-09-06T00:00:00.000Z' },
+      ])
+      expect(grid[0]).toEqual([true])
+    })
+
+    it('should not let an ordinary working day mark a dates-only date busy', () => {
+      // 08:00-18:00 local. Ten hours is a full day of work and is not a full day.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
+        { start: '2025-09-05T13:00:00.000Z', end: '2025-09-05T23:00:00.000Z' },
+      ])
+      expect(grid[0]).toEqual([false])
+    })
+
+    it('should add separate bookings together before deciding a date is fully booked', () => {
+      // 00:00-10:00 and 10:00-19:00 local: two bookings, nineteen hours between them.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
+        { start: '2025-09-05T05:00:00.000Z', end: '2025-09-05T15:00:00.000Z' },
+        { start: '2025-09-05T15:00:00.000Z', end: '2025-09-06T00:00:00.000Z' },
+      ])
+      expect(grid[0]).toEqual([true])
+    })
+
+    it('should not double-count overlapping bookings toward a fully booked date', () => {
+      // Two ten-hour bookings covering 00:00-11:00 local between them. Summed naively that is
+      // twenty hours and a booked day; unioned it is eleven, and is not.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
+        { start: '2025-09-05T05:00:00.000Z', end: '2025-09-05T15:00:00.000Z' },
+        { start: '2025-09-05T06:00:00.000Z', end: '2025-09-05T16:00:00.000Z' },
+      ])
+      expect(grid[0]).toEqual([false])
+    })
+
     it('should convert the same busyIntervals independently for two polls in different timezones sharing a calendar-connected user', () => {
       // Regression test for the shared-cache cross-timezone bug: the same raw busyIntervals, cached
       // once per googleSub, must be interpreted independently by each reading poll's own timezone.
