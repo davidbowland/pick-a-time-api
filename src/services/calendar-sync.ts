@@ -1,6 +1,6 @@
 import { calendarSyncFreshnessMs } from '../config'
 import { CalendarAccountRecord, PollRecord } from '../types'
-import { logError, sanitizeErrorForLogging } from '../utils/logging'
+import { log, logError, sanitizeErrorForLogging } from '../utils/logging'
 import { putCalendarAccount } from './dynamodb'
 import { fetchFreeBusy, refreshAccessToken } from './google-calendar'
 import { decryptRefreshToken } from './kms'
@@ -66,6 +66,12 @@ export const syncCalendarAccountForPoll = async (
       new Date(`${nextIsoDate(nextRange.end)}T00:00:00.000Z`).getTime() + 12 * HOUR_MS,
     ).toISOString()
     const busyIntervals = await fetchFreeBusy(accessToken, timeMin, timeMax)
+    // The success path used to say nothing, which made a calendar that marks nothing impossible to
+    // tell apart from a calendar Google reports as empty -- and freeBusy reports plenty of real
+    // bookings as empty: all-day events are Free by default and never appear here at all, and only
+    // the 'primary' calendar is asked. Count and window only; the intervals themselves are somebody's
+    // schedule and have no business in a log.
+    log('Fetched free/busy from Google', { busyIntervalCount: busyIntervals.length, timeMax, timeMin })
 
     const updated: CalendarAccountRecord = {
       ...record,

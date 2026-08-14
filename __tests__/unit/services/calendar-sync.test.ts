@@ -3,7 +3,7 @@ import { syncCalendarAccountForPoll } from '@services/calendar-sync'
 import * as dynamodb from '@services/dynamodb'
 import * as googleCalendar from '@services/google-calendar'
 import * as kms from '@services/kms'
-import { logError } from '@utils/logging'
+import { log, logError } from '@utils/logging'
 
 jest.mock('@services/dynamodb')
 jest.mock('@services/google-calendar')
@@ -46,6 +46,22 @@ describe('calendar-sync', () => {
       // timezones. Conversion to date/minute blocks happens per-reader in buildBusyGrid instead.
       expect(result.busyIntervals).toEqual([rawInterval])
       expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(expect.objectContaining({ status: 'connected' }))
+    })
+
+    // Nothing on the success path used to say anything at all, so "the check marked nothing" and
+    // "Google answered with nothing" were indistinguishable from outside -- the exact ambiguity that
+    // left a dead sync undiagnosable. Counts and the queried window only: interval times are somebody's
+    // calendar, and the count is all a reader needs to tell an empty answer from a full one.
+    it('should log how many intervals Google returned and the window asked for', async () => {
+      const outOfRangeRecord = { ...calendarAccountRecord, syncedRange: { start: '2020-01-01', end: '2020-01-31' } }
+      jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce([])
+
+      await syncCalendarAccountForPoll(outOfRangeRecord, session, freshNow)
+
+      expect(log).toHaveBeenCalledWith(
+        'Fetched free/busy from Google',
+        expect.objectContaining({ busyIntervalCount: 0, timeMax: expect.any(String), timeMin: expect.any(String) }),
+      )
     })
 
     it('should query a UTC window padded 14h before the start date and 12h after the day following the end date', async () => {

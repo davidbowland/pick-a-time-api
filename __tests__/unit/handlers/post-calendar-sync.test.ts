@@ -13,6 +13,7 @@ import { handler, postCalendarSync } from '@handlers/post-calendar-sync'
 import * as calendarSync from '@services/calendar-sync'
 import * as dynamodb from '@services/dynamodb'
 import { APIGatewayProxyEventV2 } from '@types'
+import { log } from '@utils/logging'
 
 jest.mock('@services/calendar-sync')
 jest.mock('@services/dynamodb')
@@ -80,6 +81,19 @@ describe('post-calendar-sync', () => {
             [true, true, true],
           ],
         }),
+      )
+    })
+
+    // The one line that distinguishes the two ways a check comes back having marked nothing: a
+    // calendar with nothing in the poll's hours (intervals arrived, none overlapped) from a calendar
+    // Google reported as empty (nothing arrived at all). Without it both look identical from outside,
+    // and picking between them is most of the work of diagnosing a sync that appears dead.
+    it('should log the interval count alongside the marked count', async () => {
+      await postCalendarSync(event, now)
+
+      expect(log).toHaveBeenCalledWith(
+        'Calendar check complete',
+        expect.objectContaining({ busyIntervalCount: calendarAccountRecord.busyIntervals.length, markedBusyCount: 2 }),
       )
     })
 

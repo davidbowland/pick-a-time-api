@@ -133,6 +133,10 @@ export const postCalendarSync = async (
     }
 
     const { availability: updated, markedBusyCount } = markBusyHours(session, availability, synced.busyIntervals)
+    // Two very different failures both surface as "it marked nothing": a calendar Google reported as
+    // empty, and a calendar whose bookings simply miss the poll's hours. Only the interval count
+    // separates them, and this check spends the poll's one automatic go either way, so record it.
+    log('Calendar check complete', { busyIntervalCount: synced.busyIntervals.length, markedBusyCount })
     const stamped = { ...updated, calendarCheckedAt: Math.floor(now() / 1000) }
     await updateAvailability(sessionId, userId, stamped)
 
