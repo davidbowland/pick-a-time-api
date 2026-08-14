@@ -35,7 +35,10 @@ describe('overlap', () => {
       const grid = buildBusyGrid(datesOnlyPoll, [
         { start: '2025-09-04T21:00:00.000Z', end: '2025-09-07T23:00:00.000Z' },
       ])
-      expect(grid[0]).toEqual([false]) // 09-04: only busy 16:00-24:00, doesn't span the whole day
+      // 09-04 is busy 16:00-24:00: eight hours exactly, which is the threshold, so the departure day
+      // counts as booked along with the interior ones. A day you leave on at four is not a day you
+      // can give to something else.
+      expect(grid[0]).toEqual([true])
       expect(grid[1]).toEqual([true]) // 09-05: fully interior
       expect(grid[2]).toEqual([true]) // 09-06: fully interior
     })
@@ -86,10 +89,20 @@ describe('overlap', () => {
       expect(grid[0]).toEqual([true])
     })
 
-    it('should not let an ordinary working day mark a dates-only date busy', () => {
-      // 08:00-18:00 local. Ten hours is a full day of work and is not a full day.
+    it('should mark a dates-only date busy for an ordinary working day', () => {
+      // 08:00-18:00 local. A day already carrying ten hours of commitments is not a day this person
+      // is free for a whole-day plan, whether or not anything on it is an all-day booking.
       const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
         { start: '2025-09-05T13:00:00.000Z', end: '2025-09-05T23:00:00.000Z' },
+      ])
+      expect(grid[0]).toEqual([true])
+    })
+
+    it('should leave a dates-only date free for less than a working day of bookings', () => {
+      // 09:00-15:00 local: six hours, a morning and a bit. Enough to work around, so the date stays
+      // free and its owner keeps the choice.
+      const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
+        { start: '2025-09-05T14:00:00.000Z', end: '2025-09-05T20:00:00.000Z' },
       ])
       expect(grid[0]).toEqual([false])
     })
@@ -104,11 +117,11 @@ describe('overlap', () => {
     })
 
     it('should not double-count overlapping bookings toward a fully booked date', () => {
-      // Two ten-hour bookings covering 00:00-11:00 local between them. Summed naively that is
-      // twenty hours and a booked day; unioned it is eleven, and is not.
+      // Two five-hour bookings covering 00:00-07:00 local between them. Summed naively that is ten
+      // hours and a booked day; unioned it is seven, and is not.
       const grid = buildBusyGrid(offsetPoll(['2025-09-05']), [
-        { start: '2025-09-05T05:00:00.000Z', end: '2025-09-05T15:00:00.000Z' },
-        { start: '2025-09-05T06:00:00.000Z', end: '2025-09-05T16:00:00.000Z' },
+        { start: '2025-09-05T05:00:00.000Z', end: '2025-09-05T10:00:00.000Z' },
+        { start: '2025-09-05T07:00:00.000Z', end: '2025-09-05T12:00:00.000Z' },
       ])
       expect(grid[0]).toEqual([false])
     })

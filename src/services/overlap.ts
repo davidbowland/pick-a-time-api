@@ -36,15 +36,22 @@ const toBusyBlocks = (
 
 // How much of a local date has to be booked before a dates-only poll calls that date busy.
 //
-// It used to demand a single block covering 0..1440 exactly. An all-day booking only lands on those
-// boundaries when the calendar it came from shares the poll's timezone: freeBusy answers in
-// instants, so a day that starts at midnight somewhere else arrives here split across two local
-// dates -- {D, 60..1440} and {D+1, 0..60} for a one-hour offset -- and neither half covers a whole
-// day. Somebody booked solid was left free, and only ever cross-timezone, which is why it went
-// unnoticed. Eighteen hours clears every real all-day booking offset by up to six, and sits well
-// above any timed commitment somebody would not call a full day. Offsets beyond six hours are still
-// missed; that is a known limit, not a solved case.
-const DATE_ONLY_BUSY_MINUTES = 18 * 60
+// It used to demand a single block covering 0..1440 exactly, then eighteen hours. Both were chasing
+// the same case: an all-day booking, which freeBusy answers in instants, so one made in another
+// timezone arrives split across two local dates -- {D, 60..1440} and {D+1, 0..60} for a one-hour
+// offset -- and neither half covers a whole day.
+//
+// Eight hours is a different question, and the one a dates-only poll is actually asking. These polls
+// pick whole days, so the answer that matters is "could this person give the day to it", not "is
+// literally every hour spoken for". A day already carrying a working day's worth of commitments is
+// a day they cannot, whether that is one all-day booking or six hours of meetings and a dentist.
+// Anything less stays free: half a day is something you work around, and the choice belongs to its
+// owner, who can always paint the day back.
+//
+// The union rule below is what keeps this honest -- eight hours of overlapping bookings is eight
+// hours, not sixteen -- and the lower bar incidentally widens the all-day offset this tolerates from
+// six hours to sixteen, covering every real-world UTC offset rather than most of them.
+const DATE_ONLY_BUSY_MINUTES = 8 * 60
 
 const unionCoverageMinutes = (blocks: { startMinute: number; endMinute: number }[]): number => {
   const sorted = [...blocks].sort((a, b) => a.startMinute - b.startMinute)
