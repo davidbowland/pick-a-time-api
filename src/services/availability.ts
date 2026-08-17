@@ -7,7 +7,8 @@ export interface AvailabilityRead {
   session: PollRecord
 }
 
-// The poll comes back with the record because every caller needs both and reading it twice would
+// The poll comes back with the record because the authenticated caller needs both -- the open
+// handler discards it -- and reading it twice would
 // let the two reads disagree -- one arm seeing an active poll, the other an expired one.
 //
 // Records only. This read is what the unauthenticated GET /availability serves, so it must have no

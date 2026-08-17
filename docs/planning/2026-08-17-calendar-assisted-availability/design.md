@@ -54,11 +54,10 @@ P-b unsolved. It also introduces the only new palette token in the set.
 |---|---|---|
 | `Chip` | **modify** — add a `primary` prop: the existing `selected` skin without `aria-pressed`, plus `aria-disabled` support that keeps the control focusable | `pick-a-time-ui/src/components/ui/chip/index.tsx` |
 | `FOCUS_RING` | reuse unchanged | `pick-a-time-ui/src/components/ui/focus-ring.ts` |
-| `BOOKED_CELL_CLASS`, `CONFLICT_CELL_CLASS` | **new** — exported constants beside `DISABLED_CELL_CLASS`, so the three "not a normal cell" treatments are compared whenever any changes | `pick-a-time-ui/src/components/poll/slot-columns.ts` |
+| `BOOKED_CELL_FRAGMENT`, `CONFLICT_CELL_FRAGMENT` | **new** — exported beside `DISABLED_CELL_CLASS`, so the three "not a normal cell" treatments are compared whenever any changes. Named *fragment* because unlike its neighbour it is the varying half of a cell, not a whole class list — and with no tailwind-merge here, layering two `bg-*` utilities is resolved by stylesheet order, so the call site picks one in a ternary | `pick-a-time-ui/src/components/poll/slot-columns.ts` |
 | `GridKey` | **new** — small, modelled on the heat-grid legend row (`flex items-center gap-1 text-[10px] text-[var(--slate)]`, `h-3 w-3 rounded` swatches) | `pick-a-time-ui/src/components/poll/painting/elements.tsx` |
 | `PaintGrid` | **modify** — the single `on` boolean in the className expression becomes a derived `painted`/`booked` pair | `pick-a-time-ui/src/components/poll/painting/grid.tsx` |
 | `CalendarStrip` | **modify** — two new branches in `contentFor`/`actionsFor`; new props `conflictCount`, `fillableCount`, `skippedCount`, `onFill`, `onClearConflicts`, `onKeepConflicts`. Stays presentational and prop-driven | `pick-a-time-ui/src/components/poll/painting/elements.tsx` |
-| recommended-ring span | reuse verbatim | `pick-a-time-ui/src/components/poll/results/heat-grid.tsx` |
 | `buildBusyGrid`, `toBusyBlocks` | reuse unchanged | `pick-a-time-api/src/services/overlap.ts:75-89` |
 
 ## Cell state vocabulary
@@ -70,7 +69,7 @@ Five treatments. All are live, focusable `<button>`s; every glyph, ring and mark
 |---|---|---|---|
 | Unpainted, not booked | `bg-[var(--bone)]/10` | — | `Wed, Aug 12, 5:30–7:00 PM` |
 | Painted, not booked | `bg-[var(--accent)]` | `Check`, `text-[var(--ink)]/70` | …, `aria-pressed="true"` |
-| Booked, unpainted | `bg-[var(--bone)]/16` | `Clock` glyph in `--slate` (5.98:1) | `…, booked` |
+| Booked, unpainted | `bg-[var(--bone)]/16` | `Clock` glyph in `--slate` (**3.80:1 on the booked fill** — 5.98:1 is the page measurement, which no reader sees) | `…, booked` |
 | Booked **and** painted (conflict) | `bg-[var(--accent)]` | `Check` **plus** an `--ink` marker bar (6.50:1 on accent) | `…, booked`, `aria-pressed="true"` |
 | Out of this date's window | `DISABLED_CELL_CLASS` — dashed, `bg-[var(--bone)]/[0.03]` | not a button, `aria-hidden` | — |
 

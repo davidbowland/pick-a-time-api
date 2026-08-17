@@ -34,7 +34,6 @@ describe('get-availability', () => {
   it('should return the availability record', async () => {
     const result = await handler(event)
     expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
-    expect(JSON.parse((result as { body: string }).body)).toEqual(visible)
   })
 
   // Byte-level, not shape-level. Moving the read behind a service is only safe if every client

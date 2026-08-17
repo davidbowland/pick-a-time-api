@@ -119,10 +119,17 @@ a 400KB item overflow stops being theoretical: `putCalendarAccount` failures are
 | **(c)** Stop unioning ranges — replace `syncedRange` with each request's range | Strictly bounded by one poll | Destroys the cache's purpose: the record is shared across every poll a person is in, and each poll would evict the others, turning every poll open into a Google call |
 
 **Decision.** **(b)**, plus the half of (a) worth keeping: a hard interval cap as a backstop,
-and `persistCalendarAccount` surfacing a failed write rather than swallowing it. The
-retention boundary is an implementation choice for the plan; the recommendation is to derive
-it from the poll TTL (`calendarSyncFreshnessMs`' neighbour in `src/config.ts:11`, 336h) so
-the two cannot drift, and to clamp rather than to drop the range entirely.
+and `persistCalendarAccount` surfacing a failed write rather than swallowing it.
+
+> **AMENDED after the Phase 4 security review — the original recommendation here was wrong.**
+> It said to derive the boundary from the poll TTL so the two could not drift. That is
+> self-defeating: poll dates run to +365d (`maxPollDateRangeDays`) while the record TTL is 336h,
+> so a TTL-derived clamp prunes the intervals just fetched, `rangeCoversDates` never holds, and
+> every poll open becomes a Google call that keeps nothing. The boundary is
+> `[today − sessionExpireHours, today + maxPollDateRangeDays]`, anchored to today, with a
+> backward arm because a poll may hold dates already past. See `spec.md` C-5 and `decisions.md`
+> D-21. Over the cap the write refuses rather than trims — a calendar missing its last hundred
+> bookings looks exactly like one that has them.
 
 **Consequences.** Easy: the record stays small enough that ADR-3's read path is reliable.
 Hard: a poll asking about dates older than the retention window will not get an underlay for
