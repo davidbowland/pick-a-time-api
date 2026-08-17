@@ -1,9 +1,9 @@
 # Decisions — Calendar-assisted availability
 
 ```
-STATUS: phase 4 (Generate) — Stop 4 taken as user-delegated
-Last committed: design.md
-Next action: change rundown + traceability matrix, commit spec.md, then 3 blind consistency reviewers
+STATUS: phase 4 (Generate) — consistency review resolved, writing plan.md
+Last committed: spec.md (post-review revision)
+Next action: write plan.md in devils-advocate-review-loop shape, commit at Stop 5, hand off
 ```
 
 ## Working context
@@ -301,4 +301,54 @@ D-20 · phase 3 · Two questions left open rather than resolved silently
       aria-live region AC-024 needs; Select all / Clear all are the chip's natural siblings.
   Both need the real component on screen to decide. Recorded in design.md "Open questions"
   rather than guessed at.
+```
+
+```
+D-21 · phase 4 · Consistency review — 19 blocking findings, all applied, one pass
+  Three reviewers, blind to each other. The first draft of spec.md was wrong in ways the
+  traceability gate did not catch, because the gate checked that every AC HAD a row rather
+  than that the row's changes could DELIVER it. Four rows were false passes.
+
+  The five that would have caused real damage:
+    - The authed response carried no calendar status, so `error` and
+      `connected-with-nothing-booked` were indistinguishable client-side and AC-030, AC-034
+      and AC-042 were undecidable. calendarStatus + busyWindow added.
+    - The IAM grant was KMS-only. ADR-3 has the handler call syncCalendarAccountForPoll,
+      which reads two SSM SecureStrings and writes back to DynamoDB. Every poll open would
+      have 500'd. Also needs the LEGACY KMS key ARN — tokens encrypted under it still decrypt.
+    - "Remove the editCount guards" was too broad. editCountAtSyncRef dies with the second
+      writer; editCountRef guards a stale PATCH against newer paint and is unrelated to the
+      calendar. Deleting it would have reintroduced a paint-vs-paint race.
+    - The retention bound was self-defeating: poll dates run to +365d while the TTL is 336h,
+      so a TTL-derived clamp prunes the intervals just fetched. Now bounded by
+      [today - sessionExpireHours, today + maxPollDateRangeDays], with a backward arm because
+      polls may hold past dates.
+    - Signed-in-but-unlinked participants get a BLANK grid, not a calendar-less one:
+      painting/index.tsx:237 returns null with no availability, and the claim that links the
+      record fires in the parent after the child's query mounts. AC-044 and a 401/403 fallback.
+
+  YAGNI cut: the response-side redaction helper had zero callers, since nothing in either repo
+  logs a response body. AC-012 is carried by tests instead; src/utils/logging.ts is untouched.
+
+  Non-blocking, carried not fixed: line-reference drift across artifacts; elements.tsx:137-146
+  already satisfies AC-036 so C-14 preserves rather than adds; C-14's prop naming should follow
+  isChecking/isConnecting; D-11 above still quotes "painted N hours".
+```
+
+```
+D-22 · phase 4 · AC-039 was false, and the fill is what falsifies it
+  The privacy policy claims "nobody on the poll can tell which is which" about calendar-derived
+  hours. AC-020's one-tap fill makes stored `free` the exact complement of busy within the poll
+  window, and `free` is public to link-holders on an unauthenticated route — so a link-holder
+  can inverft the grid and recover calendar occupancy.
+  The leak is reachable today (paint everything, run a check) but the fill makes it the DEFAULT
+  path rather than an edge case.
+  Candidates: (a) narrow the claim to what stays true — the record stores no provenance
+              (b) make the fill deliberately imperfect so `free` is not a clean complement
+              (c) move `free` behind auth
+  Rejected:   (b) degrades the feature to defeat an inference, and a determined observer still
+                  gets most of the signal.
+              (c) anonymous participants have no auth to move behind — the link IS the
+                  credential — so this breaks joining without a Google account.
+  Picked:     (a) — AC-043. The honest claim is the one about storage, not about inference.
 ```

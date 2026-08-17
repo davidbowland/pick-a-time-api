@@ -237,6 +237,7 @@ Then  a non-color indicator (glyph or texture) marks it, and the grid is legible
 Verify: manual
 ```
 
+**AC-016 (P-c)** — WITHDRAWN — superseded by AC-041. As written it names a token the chosen design does not introduce, and demands 3:1 against `--ink` for an indicator that sits on `--accent`; the design's own analysis shows no color clears both (ceiling ~2.17:1), making it unsatisfiable.
 **AC-016 (P-c)** — The booked indicator clears contrast (WCAG 2.2 AA, 1.4.11)
 ```
 Given the color token introduced for the booked treatment
@@ -493,6 +494,7 @@ Then  the record's expiration is extended from that moment, so the published cla
 Verify: automated
 ```
 
+**AC-039 (P-c)** — WITHDRAWN — superseded by AC-043. Its second clause asserts a property AC-020 destroys: after a one-tap fill, stored `free` is the complement of busy within the poll window, and `free` is public to link-holders.
 **AC-039 (P-c)** — The privacy policy describes the behavior that ships
 ```
 Given the published privacy policy
@@ -500,5 +502,46 @@ When  this feature ships
 Then  it contains no claim that the calendar marks hours busy on the participant's behalf, and
       its statement that other participants cannot distinguish calendar-derived hours remains
       accurate
+Verify: automated
+```
+
+---
+
+## Amendments — Phase 4 (consistency review)
+
+**AC-041 (P-c)** — Every state indicator clears contrast against its own ground
+```
+Given each non-color indicator introduced for booked and conflict cells
+When  its ratio is computed by src/utils/contrast.ts against the fill it sits on
+Then  it is at least 3:1 — the booked glyph against the booked fill, and the conflict
+      marker against the accent fill
+Verify: automated
+```
+
+**AC-042 (P-c)** — A failed connection is named, not merely undrawn
+```
+Given the calendar state is 'error'
+When  the strip renders
+Then  it states that the connection could not be reached and offers a retry
+Verify: automated
+```
+
+**AC-043 (P-c)** — The privacy policy claims only what stays true
+```
+Given the published privacy policy
+When  this feature ships
+Then  it contains no claim that the calendar marks hours busy on the participant's behalf,
+      no claim that other participants cannot distinguish calendar-derived hours, and no
+      claim that busy times are kept for a period the retention bound contradicts; it may
+      state that the stored record keeps no record of which hours came from a calendar
+Verify: automated
+```
+
+**AC-044 (P-c)** — A signed-in participant whose record is not yet linked still sees their grid
+```
+Given a signed-in participant whose user record has a null googleSub
+When  they open the poll and the authenticated availability read returns 401 or 403
+Then  the grid renders from the unauthenticated read with no busy layer, and no blank or
+      error state is shown
 Verify: automated
 ```
