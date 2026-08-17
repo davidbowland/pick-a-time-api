@@ -275,7 +275,7 @@ describe('get-availability-authed', () => {
       expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
     })
 
-    it('should log counts only, never an interval, a date, or a grid', async () => {
+    it('should log counts only, never an interval or a grid', async () => {
       jest.mocked(dynamodb).getCalendarAccount.mockResolvedValueOnce(staleAccount)
       jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce(calendarAccountRecord.busyIntervals)
 

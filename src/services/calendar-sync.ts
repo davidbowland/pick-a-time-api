@@ -63,7 +63,9 @@ const paddedWindowMs = (range: DateRange): { min: number; max: number } => ({
 const rangeCoversDates = (range: DateRange | null, dates: string[]): boolean =>
   !!range && dates.every((date) => date >= range.start && date <= range.end)
 
-const rangesOverlapOrAdjacent = (a: DateRange, b: DateRange): boolean => a.start <= b.end && b.start <= a.end
+// Whether two ranges share any day at all. Used to decide if a stored range is still worth keeping,
+// never to decide whether to union -- unioning across a gap is the point (see below).
+const rangesMeet = (a: DateRange, b: DateRange): boolean => a.start <= b.end && b.start <= a.end
 
 const clampRange = (range: DateRange, bounds: DateRange): DateRange => ({
   end: range.end < bounds.end ? range.end : bounds.end,
@@ -146,13 +148,27 @@ export const syncCalendarAccountForPoll = async (
   }
 
   const requiredRange = { end: dates[dates.length - 1], start: dates[0] }
-  const unionedRange =
-    record.syncedRange && rangesOverlapOrAdjacent(record.syncedRange, requiredRange)
-      ? {
-          end: record.syncedRange.end > requiredRange.end ? record.syncedRange.end : requiredRange.end,
-          start: record.syncedRange.start < requiredRange.start ? record.syncedRange.start : requiredRange.start,
-        }
-      : requiredRange
+  // Two ranges that do not overlap are unioned across the gap rather than one replacing the other,
+  // and that reversal is what keeps the freshness pair above honest. Replacing meant syncedRange
+  // only ever covered the poll read LAST, so one signed-in person moving between two polls whose
+  // dates do not overlap failed rangeCoversDates on every request -- an unbounded freebusy call and
+  // a write per page open, with the freshness window never once consulted. Under the old model that
+  // cost one check per poll. Under this one every open reads this path.
+  //
+  // Replacing existed to stop the range growing without limit, and that reason expired when the
+  // retention clamp arrived: a union cannot now exceed the bounded window whatever it swallows, and
+  // the interval cap is sized for a packed year.
+  //
+  // A stored range that no longer meets the window at all is dropped rather than unioned. Keeping it
+  // would drag the fetch backwards to a boundary the clamp is about to cut anyway, widening every
+  // query for anyone returning after a long absence to buy nothing.
+  const liveRange = record.syncedRange && rangesMeet(record.syncedRange, bounds) ? record.syncedRange : null
+  const unionedRange = liveRange
+    ? {
+        end: liveRange.end > requiredRange.end ? liveRange.end : requiredRange.end,
+        start: liveRange.start < requiredRange.start ? liveRange.start : requiredRange.start,
+      }
+    : requiredRange
   // The union is what used to grow without limit. Clamping it here is what makes the growth stop,
   // and it also narrows the Google query: nothing outside the retention window is worth fetching,
   // since it would be pruned before the write. requiredRange is inside the bounds by construction,

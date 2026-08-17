@@ -365,4 +365,29 @@ describe('calendar-sync', () => {
       })
     })
   })
+
+  // Two polls whose dates do not overlap, read alternately by one signed-in person. Replacing the
+  // range instead of unioning it made rangeCoversDates fail on every request, so the freshness
+  // window -- the only rate limit left once the per-poll lock went -- was never reached at all.
+  describe('disjoint poll ranges', () => {
+    // Both inside the retention window the fixture clock (2024-10-10) produces, and disjoint from
+    // each other: the fixture's own syncedRange is 2025-09-04..06, and June touches none of it.
+    const septemberPoll = { ...session, dates: ['2025-09-04', '2025-09-05'] }
+    const junePoll = { ...session, dates: ['2025-06-01', '2025-06-02'] }
+
+    it('should union across the gap rather than replace, so the earlier poll stays covered', async () => {
+      const afterJune = await syncCalendarAccountForPoll(calendarAccountRecord, junePoll, freshNow)
+
+      expect(afterJune.syncedRange).toEqual({ end: '2025-09-06', start: '2025-06-01' })
+    })
+
+    it('should make no Google call when alternating between two disjoint polls inside the window', async () => {
+      const afterJune = await syncCalendarAccountForPoll(calendarAccountRecord, junePoll, freshNow)
+      jest.mocked(googleCalendar).fetchFreeBusy.mockClear()
+
+      await syncCalendarAccountForPoll(afterJune, septemberPoll, freshNow)
+
+      expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+    })
+  })
 })
