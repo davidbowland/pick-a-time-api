@@ -1,9 +1,9 @@
 # Decisions — Calendar-assisted availability
 
 ```
-STATUS: phase 2 (Architecture) — Stop 3 taken as user-delegated
-Last committed: architecture.md
-Next action: open phase 3, delegate to ui-design-options with brief.md
+STATUS: phase 4 (Generate) — Stop 4 taken as user-delegated
+Last committed: design.md
+Next action: change rundown + traceability matrix, commit spec.md, then 3 blind consistency reviewers
 ```
 
 ## Working context
@@ -272,4 +272,33 @@ D-18 · phase 3 · Privacy policy edits forced by this change — BELOW THE ADR 
   clause stays true (AC-005/009/010 enforce it); its first becomes false on the owner's own
   screen, which is the point of the feature. Net: shorter and more accurate, at most one clause
   added. The plainspoken-privacy-policy skill writes the replacement wording, not this log.
+```
+
+```
+D-19 · phase 3 · Copy review — 24 findings, 12 blocking, all applied
+  One was not a copy defect at all: the fill's report counted the TOTAL booked slots rather than
+  the ones the fill actually skipped. Those differ on a partly painted grid, so the string was
+  reporting a number the action did not produce. Carried as AC-040.
+  The rest that changed behaviour rather than wording:
+    - the primary-calendar limit was absent from every base surface and from the consent moment;
+      it becomes a permanent explanatory line above the grid ("We only check your primary
+      calendar, and only the dates in this poll"), which closes D-4's honesty gap without
+      widening the OAuth scope
+    - the error state dropped the fill control with no reason, while the design already specified
+      aria-disabled + a visible reason for `checking`; the two are now consistent (AC-032)
+    - the accent (primary) chip was the INERT one in checking and error — emphasis on a control
+      that cannot act
+    - "Your calendar disagrees" personified; every title in the voice sample is a flat fact.
+      Now "Marked free, but booked", which also holds at 25 conflicts where the original scolded
+    - the error state's cell names kept claiming ", booked" while the layer was not drawn
+```
+
+```
+D-20 · phase 3 · Two questions left open rather than resolved silently
+  (a) Whether `Check again` stays visible during the conflict review — the strip now has four
+      jobs and this is the only state with a competing action.
+  (b) Whether the fill chip lives in the strip or the toolbar (D-10). The strip owns the
+      aria-live region AC-024 needs; Select all / Clear all are the chip's natural siblings.
+  Both need the real component on screen to decide. Recorded in design.md "Open questions"
+  rather than guessed at.
 ```
