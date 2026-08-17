@@ -192,3 +192,84 @@ D-13 · phase 2 · User delegated all open decisions
   Tagged user-delegated -- auditable and reversible. Stops 3, 4 and 5 collapse; the run
   continues to completion and hands off to devils-advocate-review-loop.
 ```
+
+```
+D-14 · phase 3 · Chosen design — the reviewer's cut
+  Candidates: (A) "show me and let me decide" — passive layer, explicit bulk action, confirm
+                  dialog before replacing paint
+              (B) "speak when I'm wrong" — booked is loud only where it contradicts paint,
+                  batch conflict resolution
+              (C) "off the table" — a mode removes booked time from the grid; Select all
+                  becomes the import
+  Rejected:   (C) removes a set-aside day's cells from the DOM, straining AC-018 — the restore
+                  chip mitigates but does not fix it — and a persisted per-user view mode means
+                  two people open the same poll and see different grids.
+              (A) informs but never acts, so it fails the participant who paints quickly and
+                  ignores the layer; it also introduces the only new palette token in the set.
+  Picked:     the cut — base B, grafting from A: the five-state cell rendering including the
+              --ink marker for painted-over-a-booking, the failure behavior (remove the layer,
+              aria-disable the bulk action while keeping it focusable with a visible reason),
+              and "slots" as the unit. From C: the governing rule that the system never
+              overrules a hand decision. Recommended, user confirmed.
+  Rationale:  B is the only option whose main flow keeps a stored answer true to the calendar
+              OVER TIME rather than at the single moment a button is pressed.
+```
+
+```
+D-15 · phase 3 · The overlap regression is no longer accepted — D-7 is superseded
+  D-7 recorded the loss of calendar-aware overlap as forced by the strictly-presentational
+  constraint, with a reconcile prompt named as the only leak-free remedy and deliberately left
+  out of scope. Option B, generated blind and with no knowledge of D-7, produced exactly that
+  remedy as its PRIMARY flow. It costs no additional scope, leaks nothing (the conflict data
+  never leaves the owner's authenticated session), and is fully overridable (AC-028).
+  D-7's "picked (a) — accept the regression" is therefore withdrawn. AC-027 and AC-028 carry
+  the remedy. The overlap itself is still computed from stored `free` alone (AC-009 unchanged);
+  what changed is that participants now have a first-class way to keep `free` honest.
+```
+
+```
+D-16 · phase 3 · AC amendments, append-only
+  WITHDRAWN: AC-004 (superseded by AC-030, strictly stronger)
+             AC-023 (superseded by AC-037; its confirm branch describes a design nobody builds)
+  APPENDED:  AC-027..AC-030 from the chosen option's conflict flow
+             AC-031..AC-036 from the coverage pass
+             AC-037 replacing AC-023 — the bulk action only ever paints
+             AC-038, AC-039 — truthfulness of published claims (see D-17)
+  Not amended: AC-024 already said "slots", not "hours". An earlier claim that it needed
+  fixing was wrong; the counting defect is in SHIPPED copy (`detailFor` in elements.tsx
+  renders "marked N hours busy"), which D-11 already retires with markedBusyCount.
+```
+
+```
+D-17 · phase 3 · The expiration bug moves into scope
+  Context:    The published privacy policy states the calendar connection is kept "for 90 days
+              after the last time we checked, and every check restarts that clock". That last
+              clause is false: calendar-sync.ts:76-82 spreads ...record and never touches
+              expiration, so the clock runs from connect. D-8 had filed this as an out-of-scope
+              code defect.
+  Candidates: (a) fix the code so the sentence becomes true (one line, alongside lastSyncedAt)
+              (b) weaken the policy sentence to match the bug
+              (c) leave both, ship, fix later
+  Rejected:   (b) edits a privacy policy to match a defect — the wrong direction of repair, and
+                  it makes the retention promise worse for the reader.
+              (c) ships a feature that touches this exact record while knowingly leaving a false
+                  published claim about it.
+  Picked:     (a) — AC-038. Recommended by me and taken under the user's standing "take all your
+              recommendations" delegation rather than answered directly; user-delegated,
+              reversible. The user raised the policy question; this is the cheaper half of the
+              answer.
+  Note:       AC-038 and AC-039 trace to P-c by an extended reading — a feature that leaves the
+              app making false statements about itself is P-c's trust failure in another
+              surface. Recorded as extended rather than asserted as a clean trace.
+```
+
+```
+D-18 · phase 3 · Privacy policy edits forced by this change — BELOW THE ADR BAR
+  Two sentences at src/components/privacy-policy/index.tsx:105-107 become false and are deleted:
+  "Hours marked busy by your calendar stay busy. You can mark yourself free again at any time."
+  One sentence at :31-32 is reworded, not deleted: "Hours your calendar blocks off look exactly
+  like hours you crossed out by hand — nobody on the poll can tell which is which." Its second
+  clause stays true (AC-005/009/010 enforce it); its first becomes false on the owner's own
+  screen, which is the point of the feature. Net: shorter and more accurate, at most one clause
+  added. The plainspoken-privacy-policy skill writes the replacement wording, not this log.
+```

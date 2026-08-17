@@ -132,6 +132,7 @@ Then  slots their calendar reports as busy are shown as booked
 Verify: automated
 ```
 
+**AC-004 (P-c)** — WITHDRAWN — superseded by AC-030, which is strictly stronger (adds "the key is absent" and "no availability is changed" to the same condition).
 **AC-004 (P-c)** — A stale or failed calendar is not presented as fact
 ```
 Given a calendar account whose status is 'error'
@@ -297,6 +298,7 @@ Then  the painted slots are the ones the import produced
 Verify: automated
 ```
 
+**AC-023 (P-b)** — WITHDRAWN — superseded by AC-037. The AC offered a disjunction (preserve OR confirm); the chosen design commits to preserve, so the confirm branch describes a design nobody is building.
 **AC-023 (P-b)** — The import does not silently discard existing work
 ```
 Given a participant who has already painted slots
@@ -365,3 +367,138 @@ Verify: automated
   replayable within its 10-minute window.
 - `patch-user.ts:51-52` lets any signed-in link-holder claim an unlinked participant. AC-008
   constrains this feature against it but does not close it.
+
+---
+
+## Amendments — Phase 3
+
+Appended after `ui-design-options` returned. IDs are append-only; nothing above is renumbered.
+
+### From the chosen design's conflict flow
+
+**AC-027 (P-c)** — One action resolves every conflict at once
+```
+Given a connected calendar and at least one slot both painted free and reported busy
+When  the participant presses the strip's resolution control
+Then  every such slot is unpainted in a single committed batch, the count is reported in the
+      live region, and no non-conflicting paint is altered
+Verify: automated
+```
+
+**AC-028 (P-c)** — Every conflict can be kept
+```
+Given one or more conflicting slots
+When  the participant chooses to keep them
+Then  the paint is unchanged and persists, the strip stops asking, the booked treatment stays
+      visible on those cells, and a newly created conflict brings the review back
+Verify: automated
+```
+
+**AC-029 (P-c)** — The conflict tally is announced
+```
+Given the strip's live region
+When  the number of unresolved conflicts changes from zero to non-zero
+Then  the region's text states the current count
+Verify: automated
+```
+
+**AC-030 (P-c)** — An errored connection draws no busy treatment
+```
+Given the calendar state is 'error'
+When  the grid renders
+Then  no cell carries a booked or conflict treatment, the key is absent, and no availability
+      is changed — stale busy time is never drawn as fact
+Verify: automated
+```
+
+### From the coverage pass
+
+**AC-031 (P-c)** — An in-flight check keeps the last answer drawn, and says so
+```
+Given a connected calendar with busy time already drawn
+When  a check starts and has not yet returned
+Then  every booked treatment stays rendered as it was, no cell changes state, and the live
+      region states that a check is running and that what is on screen is from the last one
+Verify: automated
+```
+
+**AC-032 (P-c)** — A running check disables dependent actions without stealing focus
+```
+Given a check in flight
+When  the strip renders
+Then  every action depending on busy data carries aria-disabled rather than disabled, stays in
+      the tab order, and is aria-describedby a reason visible on screen; grid cells stay operable
+Verify: automated
+```
+
+**AC-033 (P-c)** — The connect prompt promises nothing the system does not do
+```
+Given the calendar is not_connected
+When  the connect prompt renders
+Then  its copy states that connecting shows booked time and that nothing is marked without
+      being asked, claims no automatic write, and keeps the freeBusy limits verbatim
+Verify: automated
+```
+
+**AC-034 (P-c)** — An empty result reads as a completed check, scoped
+```
+Given a check that succeeded and returned no busy periods
+When  the strip renders
+Then  it uses the connected title and a success-shaped report, names the calendar read and the
+      date range read, renders no error or retry treatment, and the bulk action stays available
+Verify: automated
+```
+
+**AC-035 (P-c)** — The key renders only for treatments on screen
+```
+Given the availability grid
+When  it renders
+Then  the key carries an entry for a treatment only while at least one cell draws it, and no
+      key at all when none is drawn
+Verify: automated
+```
+
+**AC-036 (P-c)** — The strip's live region is one node
+```
+Given any transition between not_connected, checking, connected, error, and review
+When  the strip re-renders
+Then  the aria-live detail element is the same DOM node before and after, updated by text
+      content only, so no report is lost to a remount
+Verify: automated
+```
+
+### Replacing AC-023
+
+**AC-037 (P-b)** — The bulk action only ever paints
+```
+Given a grid with any mixture of painted, unpainted, and booked slots
+When  the participant activates the bulk action
+Then  every non-booked slot ends painted free, no slot that was painted becomes unpainted,
+      and no confirmation is shown
+Verify: automated
+```
+
+### Truthfulness of published claims
+
+Both trace to P-c by a deliberately extended reading: a feature that leaves the app making false
+statements about itself is the trust failure P-c describes, in a different surface. Flagged here
+rather than asserted silently.
+
+**AC-038 (P-c)** — A connected calendar's retention clock tracks the last check
+```
+Given a connected calendar account
+When  a check completes successfully
+Then  the record's expiration is extended from that moment, so the published claim that "every
+      check restarts that clock" is true
+Verify: automated
+```
+
+**AC-039 (P-c)** — The privacy policy describes the behavior that ships
+```
+Given the published privacy policy
+When  this feature ships
+Then  it contains no claim that the calendar marks hours busy on the participant's behalf, and
+      its statement that other participants cannot distinguish calendar-derived hours remains
+      accurate
+Verify: automated
+```
