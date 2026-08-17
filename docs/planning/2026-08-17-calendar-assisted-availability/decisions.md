@@ -1,9 +1,9 @@
 # Decisions — Calendar-assisted availability
 
 ```
-STATUS: phase 1 (Requirements) — awaiting Stop 2
-Last committed: decisions.md
-Next action: dispatch recon subagents, then write ACs into brief.md
+STATUS: phase 1 (Requirements) — at Stop 2, awaiting user approval of brief.md
+Last committed: brief.md
+Next action: on approval, open phase 2 and write ADRs into architecture.md
 ```
 
 ## Working context
@@ -98,4 +98,50 @@ D-5 · phase 0 · Root cause already confirmed, systematic-debugging not re-run
   pick-a-time-ui/src/components/poll/painting/elements.tsx:97, and by a throwaway proof
   that markBusyHours correctly marks all three Aug 20 slots when they are painted free.
   Phase 1 therefore skips the systematic-debugging prerequisite.
+```
+
+```
+D-6 · phase 1 · Hypothesis "most guardrails evaporate" was partly wrong
+  Prior-art recon corrected the going-in assumption. The freshness window + syncedRange
+  cache was never destructive-derived (aae41e3, 356a5ec, 52f4d3a, fa1ca1d) and becomes the
+  ONLY rate limit once one-check-per-poll is dropped. calendarCheckedAt survives as a
+  timestamp for "checked X ago" even though it dies as a lock. The "'error' is never fresh"
+  clause half-survives and grows more important, because stale intervals would now render
+  as a visibly wrong underlay rather than being invisible.
+  Recorded so the plan does not delete them on the strength of the original hypothesis.
+```
+
+```
+D-7 · phase 1 · Overlap no longer reflects calendar conflicts — accepted, not chosen
+  Context:    Today a calendar conflict clears a cell in `free`, which removes the person
+              from the overlap. computeGrid/findRecommendedMeetings read `free` as their
+              sole input by explicit design (src/services/overlap.ts:99-100).
+  Candidates: (a) accept it — busy stays owner-private, overlap is paint-only
+              (b) subtract busy in the overlap read path
+              (c) rely on option B's consented write to keep `free` accurate in practice
+  Rejected:   (b) requires re-granting KMS/SSM to the unauthenticated GetOverlapFunction
+                  (deliberately stripped, template.yaml:742-749), and rebuilds BOTH failure
+                  modes that killed the July read-time filter: un-overridable, and leaks
+                  per-person calendar occupancy by differencing the grid against public `free`.
+              (c) is a mitigation, not an alternative — it only holds for people who use the
+                  import button.
+  Picked:     (a) — forced by the strictly-presentational constraint rather than chosen
+              freely. Captured as AC-009 so it is tested as intended behavior, not
+              discovered later as a regression.
+  Revisit if: a way exists to reflect conflicts in the overlap without an unauthenticated
+              function decrypting tokens and without per-person occupancy being recoverable.
+```
+
+```
+D-8 · phase 1 · Pre-existing defects surfaced, deliberately not fixed here
+  Non-blocking, logged and carried forward (see brief.md "Known defects"):
+    - CalendarAccountRecord.expiration never refreshed; connected calendars hard-expire 90
+      days after connect regardless of use, contradicting the comment at
+      src/handlers/get-calendar-callback.ts:9
+    - CalendarAccountRecord.scope written and never read
+    - OAuth state replayable within its 10-minute window (no jti, no browser binding)
+    - patch-user.ts:51-52 permits claiming an unlinked participant
+  Only the busyIntervals growth risk became an AC (AC-026), because C promotes busyIntervals
+  from a transient value to the read path, which turns a theoretical overflow into silently
+  serving a wrong underlay. The rest fail the "traces to P-b or P-c" test and stay out.
 ```
