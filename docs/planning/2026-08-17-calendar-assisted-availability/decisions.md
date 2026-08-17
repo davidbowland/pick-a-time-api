@@ -1,9 +1,9 @@
 # Decisions — Calendar-assisted availability
 
 ```
-STATUS: phase 1 (Requirements) — at Stop 2, awaiting user approval of brief.md
-Last committed: brief.md
-Next action: on approval, open phase 2 and write ADRs into architecture.md
+STATUS: phase 2 (Architecture) — Stop 3 taken as user-delegated
+Last committed: architecture.md
+Next action: open phase 3, delegate to ui-design-options with brief.md
 ```
 
 ## Working context
@@ -144,4 +144,51 @@ D-8 · phase 1 · Pre-existing defects surfaced, deliberately not fixed here
   Only the busyIntervals growth risk became an AC (AC-026), because C promotes busyIntervals
   from a transient value to the read path, which turns a theoretical overflow into silently
   serving a wrong underlay. The rest fail the "traces to P-b or P-c" test and stay out.
+```
+
+```
+D-9 · phase 2 · Client cache shape for the busy grid — BELOW THE ADR BAR
+  ADR-1 puts busy in the same response as the availability record, so the existing
+  ['availability', sessionId, userId] key carries it; no new key, no new invalidation.
+  Requirement that falls out: every optimistic setQueryData on that key must PRESERVE the
+  busy field. applyCellsToRecord (painting/index.tsx:335) already spreads the record so it
+  survives, but the rollback snapshot and any response overwrite must be checked.
+  Query keys are internal to the UI and cheap to refactor, so this fails the "materially
+  more expensive to change later" half of the ADR bar.
+```
+
+```
+D-10 · phase 2 · Where the import control lives — DEFERRED TO PHASE 3
+  Candidates: (a) Toolbar, beside Select all / Clear all (a grid action)
+              (b) CalendarStrip actionsFor (a calendar action, and the strip already owns
+                  the aria-live region AC-024 needs)
+  Not decided here: it is a UI/UX judgment and ui-design-options should make it with real
+  options rendered. Both use the same Chip primitive (src/components/ui/chip/index.tsx).
+```
+
+```
+D-11 · phase 2 · markedBusyCount is retired, not redefined — BELOW THE ADR BAR
+  It counts cells a destructive write flipped. ADR-2 deletes that write, so the number has
+  no referent. Redefining it as "cells that overlap busy" would report a figure that never
+  changes between checks, which reads as broken.
+  Replaced by AC-024's import count ("painted N hours"), which describes something that
+  actually happened. Retires three UI copy patches built to make the old number readable
+  (ea79bd8, 6afefa6, 14ee759) and the elements.test.tsx assertions around them.
+```
+
+```
+D-12 · phase 2 · The booked treatment is an exported class constant — BELOW THE ADR BAR
+  Placed beside DISABLED_CELL_CLASS in src/components/poll/slot-columns.ts, because the
+  two must be compared when either changes (AC-014 forbids them looking alike) and because
+  there is no texture precedent anywhere in the app -- a hatch is a new primitive and
+  should not be inlined into grid.tsx. Ordinary implementation choice.
+```
+
+```
+D-13 · phase 2 · User delegated all open decisions
+  User said "take all your recommendations". Applied to: the Stop 2 approval of brief.md as
+  written; D-7 (accept the overlap regression, no reconcile prompt in this run); D-4
+  (secondary calendars stay out); AC-026 staying in scope; and every ADR decision above.
+  Tagged user-delegated -- auditable and reversible. Stops 3, 4 and 5 collapse; the run
+  continues to completion and hands off to devils-advocate-review-loop.
 ```
