@@ -45,3 +45,17 @@ export const kmsCalendarKeyId = process.env.KMS_CALENDAR_KEY_ID as string
 export const googleCalendarRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI as string
 export const webAppUrl = process.env.WEB_APP_URL as string
 export const calendarSyncFreshnessMs = parseInt(process.env.CALENDAR_SYNC_FRESHNESS_MS as string, 10)
+
+// How long a connected calendar account record lives, as a DynamoDB TTL. It sits here rather than
+// module-private beside the OAuth callback that first stamps it because the sync path re-stamps it
+// on every successful check -- two copies of this number would drift, and the published privacy
+// policy promises a specific one ("every check restarts that clock"), so there can only be one.
+export const CALENDAR_ACCOUNT_TTL_SECONDS = 90 * 24 * 3600
+
+// Hard backstop under the retention window in calendar-sync.ts, not the primary bound. A cached
+// interval costs roughly 62 bytes as a DynamoDB map (the two 24-character instants plus their
+// attribute names), so 5000 of them is about 310KB against the 400KB item limit -- room to spare
+// for the rest of the record, and far above any real calendar (5000 intervals across the retention
+// window is more than thirteen bookings every day for a year). Exceeding it is treated as a failed
+// sync rather than as license to drop the oldest: see the throw in calendar-sync.ts for why.
+export const maxCachedBusyIntervals = 5000

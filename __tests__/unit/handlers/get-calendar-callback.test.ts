@@ -1,6 +1,7 @@
 import { googleSub } from '../__mocks__'
+import { CALENDAR_ACCOUNT_TTL_SECONDS } from '@config'
 import eventJson from '@events/get-calendar-callback.json'
-import { handler } from '@handlers/get-calendar-callback'
+import { getCalendarCallback, handler } from '@handlers/get-calendar-callback'
 import * as dynamodb from '@services/dynamodb'
 import * as googleCalendar from '@services/google-calendar'
 import * as kms from '@services/kms'
@@ -93,6 +94,22 @@ describe('get-calendar-callback', () => {
       expect(JSON.stringify(loggedArg)).not.toContain('config')
       expect(JSON.stringify(loggedArg)).not.toContain('shh-client-secret')
       expect(JSON.stringify(loggedArg)).not.toContain('shh-auth-code')
+    })
+  })
+
+  // The TTL is the number the privacy policy publishes, and the sync path now re-stamps it on every
+  // successful check, so it cannot live module-private here -- two copies would drift and one of
+  // them would be the one the policy describes. The clock is injected for the same reason every
+  // other clock in this codebase is: a test that reads Date.now() decides its own expected value.
+  describe('getCalendarCallback', () => {
+    it('should stamp the retention clock from the injected clock, not the wall clock', async () => {
+      const nowMs = 1728547851000
+
+      await getCalendarCallback(event, () => nowMs)
+
+      expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ expiration: Math.floor(nowMs / 1000) + CALENDAR_ACCOUNT_TTL_SECONDS }),
+      )
     })
   })
 })
