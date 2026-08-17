@@ -53,9 +53,16 @@ export interface UserRecord {
 export interface AvailabilityRecord {
   userId: string
   free: boolean[][] // [dateIndex][slotIndex]; slotIndex always 0 when the poll's usesTimes is false
-  // Epoch seconds of the last calendar check in THIS poll, or null if there has never been one.
-  // Deliberately not provenance: it records that a check ran, never which hours it touched, so
-  // nothing derived from it can distinguish a calendar-marked hour from a hand-unmarked one.
+  // WRITE-DEAD. It once held epoch seconds of the last calendar check in this poll, and existed to
+  // enforce one automatic check per poll -- a lock that was only ever needed because the check
+  // rewrote stored availability and could not be undone. The check no longer writes anything
+  // (ADR-2), so the lock went with it and the only writer left is post-user.ts, which writes null.
+  //
+  // The field survives anyway, and deliberately. Records written before this change still carry a
+  // real timestamp; dropping the field would leave them failing to parse, and dropping
+  // stripCalendarCheckedAt or the undefined-to-null backfill in dynamodb.ts would let a legacy
+  // non-null value reach an unauthenticated response -- where it answers "did this participant
+  // connect a calendar?" for anyone holding the poll link. It is read and stripped, never set.
   calendarCheckedAt: number | null
   expiration: number
 }

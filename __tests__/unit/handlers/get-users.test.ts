@@ -69,6 +69,26 @@ describe('get-users', () => {
       expect(dynamodb.getCalendarAccount).not.toHaveBeenCalled()
     })
 
+    // AC-010. The participant list is the one response every link-holder reads about everybody else,
+    // so a single calendar-derived key on it would tell the whole poll who connected an account and,
+    // for busy or busyWindow, when they are booked. It is a standing guarantee rather than a
+    // consequence of any change here: the handler has no calendar code today, and this is what
+    // notices the day somebody adds some. Named fields, not a shape comparison, so a field invented
+    // later under one of these names is caught by the name it would actually be given.
+    const calendarDerivedFields = ['busy', 'busyWindow', 'calendarCheckedAt', 'calendarStatus', 'lastSyncedAt']
+
+    it.each(calendarDerivedFields)('should expose no %s field on any participant', async (field) => {
+      jest.mocked(dynamodb).getAllUsers.mockResolvedValueOnce([{ ...userRecord, googleSub: 'google-sub-123' }])
+
+      const result = await handler(event)
+
+      const body = JSON.parse((result as { body: string }).body)
+      expect(body[0]).not.toHaveProperty(field)
+      // The serialized body too: a nested object would satisfy the property check above and still
+      // put the value on the wire.
+      expect((result as { body: string }).body).not.toContain(field)
+    })
+
     it('should return INTERNAL_SERVER_ERROR on unexpected errors', async () => {
       jest.mocked(dynamodb).getAllUsers.mockRejectedValueOnce(new Error('DynamoDB error'))
       const result = await handler(event)

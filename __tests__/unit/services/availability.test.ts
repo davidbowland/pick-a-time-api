@@ -51,6 +51,32 @@ describe('availability', () => {
       expect(dynamodb.getAvailability).not.toHaveBeenCalled()
     })
 
+    // assertSessionActive takes an injectable clock; this read was still calling it with none, so
+    // expiry here was decided by the wall clock and the two cases below could only be written by
+    // picking dates far enough out that today never reaches them. Threading it through is what lets
+    // the boundary itself be tested: expiration equal to the instant is active, one second before
+    // it is not.
+    const nowMs = 1_728_547_851_000
+    const now = (): number => nowMs
+    const nowSeconds = Math.floor(nowMs / 1000)
+
+    it('should judge expiry against the injected clock', async () => {
+      const justExpired = { ...session, expiration: nowSeconds - 1 }
+      jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: justExpired, users: [userId] })
+
+      await expect(readAvailabilityRecord(sessionId, userId, now)).rejects.toThrow(NotFoundError)
+      expect(dynamodb.getAvailability).not.toHaveBeenCalled()
+    })
+
+    it('should serve a poll that is still active at the injected instant', async () => {
+      const lastSecond = { ...session, expiration: nowSeconds }
+      jest.mocked(dynamodb).getSession.mockResolvedValueOnce({ session: lastSecond, users: [userId] })
+
+      const result = await readAvailabilityRecord(sessionId, userId, now)
+
+      expect(result).toEqual({ availability: availabilityRecord, session: lastSecond })
+    })
+
     it('should propagate NotFoundError when the record does not exist', async () => {
       jest.mocked(dynamodb).getAvailability.mockRejectedValueOnce(new NotFoundError('Availability not found'))
 

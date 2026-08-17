@@ -1,8 +1,23 @@
-import { availabilityRecord, calendarAccountRecord, session } from '../__mocks__'
-import { buildBusyGrid, computeGrid, findRecommendedMeetings, markBusyHours, pickBestSlot } from '@services/overlap'
+import { availabilityRecord, session } from '../__mocks__'
+import * as overlap from '@services/overlap'
+import { buildBusyGrid, computeGrid, findRecommendedMeetings, pickBestSlot } from '@services/overlap'
 import { AvailabilityRecord, PollRecord } from '@types'
 
 describe('overlap', () => {
+  // AC-001 and AC-009. The deleted marking pass was the only path from calendar data into stored
+  // availability, and losing it is what makes a check non-destructive. Pinned as an exact export
+  // list rather than as the absence of one name: a re-implementation under any name would restore
+  // the destructive write with every other test in this file still green, and this is the assertion
+  // that has to be edited before that can happen.
+  it('should export only grid readers and nothing that writes availability', () => {
+    expect(Object.keys(overlap).sort()).toEqual([
+      'buildBusyGrid',
+      'computeGrid',
+      'findRecommendedMeetings',
+      'pickBestSlot',
+    ])
+  })
+
   describe('buildBusyGrid', () => {
     it('should mark every overlapping slot busy for a busy interval (times mode)', () => {
       // session: dates ['2025-09-04','2025-09-05','2025-09-06'], slots [16:00-17:00),[16:30-17:30),[17:00-18:00)
@@ -152,159 +167,6 @@ describe('overlap', () => {
       expect(grid[0]).toHaveLength(3) // 2025-09-04, default window -> 3 overlapping slots
       expect(grid[1]).toHaveLength(3) // 2025-09-05, default window
       expect(grid[2]).toHaveLength(1) // 2025-09-06, override window -> exactly 1 slot
-    })
-  })
-
-  describe('markBusyHours', () => {
-    // calendarAccountRecord.busyIntervals is 2025-09-04 16:00-17:00 America/Chicago. The session's
-    // slots overlap, so that one interval covers TWO slots on dateIndex 0: slot0 [16:00-17:00) and
-    // slot1 [16:30-17:30). slot2 [17:00-18:00) and every slot on the other two dates stay free.
-    const busy = calendarAccountRecord.busyIntervals
-    // A factory, not a constant: every test gets its own grid, so a mutating implementation can
-    // never leak a marked cell from one test into the next.
-    const allFree = (): boolean[][] => [
-      [true, true, true],
-      [true, true, true],
-      [true, true, true],
-    ]
-
-    it('should mark a free slot busy when the calendar says busy', () => {
-      const input = { ...availabilityRecord, free: allFree() }
-
-      const result = markBusyHours(session, input, busy)
-
-      expect(result.availability.free[0]).toEqual([false, false, true])
-      expect(result.markedBusyCount).toBe(2)
-    })
-
-    it('should not count a slot that was already busy', () => {
-      // slot0 is already marked busy by hand, so only slot1 moves -- one fewer than the 2 counted
-      // when the same interval lands on an all-free row.
-      const input = {
-        ...availabilityRecord,
-        free: [
-          [false, true, true],
-          [true, true, true],
-          [true, true, true],
-        ],
-      }
-
-      const result = markBusyHours(session, input, busy)
-
-      expect(result.availability.free[0][0]).toBe(false)
-      expect(result.markedBusyCount).toBe(1)
-    })
-
-    it('should never mark a slot free', () => {
-      // Every slot the calendar reports FREE (slot2 on dateIndex 0, all of dateIndex 1 and 2) is
-      // busy here. A two-way edit would turn them all back on; a one-way edit leaves them alone.
-      const input = {
-        ...availabilityRecord,
-        free: [
-          [false, false, false],
-          [false, false, false],
-          [false, false, false],
-        ],
-      }
-
-      const result = markBusyHours(session, input, busy)
-
-      expect(result.availability.free.flat()).not.toContain(true)
-      expect(result.markedBusyCount).toBe(0)
-    })
-
-    it('should leave slots the calendar reports free untouched', () => {
-      const input = { ...availabilityRecord, free: allFree() }
-
-      const result = markBusyHours(session, input, busy)
-
-      expect(result.availability.free[0][2]).toBe(true)
-      expect(result.availability.free[1]).toEqual([true, true, true])
-      expect(result.availability.free[2]).toEqual([true, true, true])
-    })
-
-    it('should not mutate its input', () => {
-      const input = { ...availabilityRecord, free: allFree() }
-
-      markBusyHours(session, input, busy)
-
-      expect(input.free[0][0]).toBe(true)
-    })
-
-    it('should preserve every other field on the record', () => {
-      const input = { ...availabilityRecord, free: allFree() }
-
-      const result = markBusyHours(session, input, busy)
-
-      expect(result.availability.userId).toBe(input.userId)
-      expect(result.availability.expiration).toBe(input.expiration)
-    })
-
-    it('should mark nothing when there are no busy intervals', () => {
-      const input = { ...availabilityRecord, free: allFree() }
-
-      const result = markBusyHours(session, input, [])
-
-      expect(result.markedBusyCount).toBe(0)
-      expect(result.availability.free[0]).toEqual([true, true, true])
-    })
-
-    it('should respect per-date override windows where rows have different lengths', () => {
-      // An override narrows Saturday to a single slot, so the busy grid is ragged: rows 0 and 1 are
-      // 3 slots wide, row 2 is 1. A stored availability row can still be 3 wide there -- written
-      // before the override narrowed the day, or by a client holding a stale copy of the poll.
-      // Every slot past the end of its busy row has no calendar answer at all, and "no answer"
-      // means free: the guard reads those as not-busy rather than marking them or throwing.
-      const pollWithOverride: PollRecord = {
-        ...session,
-        overrides: [{ dates: ['2025-09-06'], startMinute: 960, endMinute: 1020 }],
-      }
-      // 2025-09-06 16:00-17:00 America/Chicago -- exactly the override's one slot, so the short row
-      // really does report busy and the test cannot pass by marking nothing at all.
-      const saturdayBusy = [{ start: '2025-09-06T21:00:00.000Z', end: '2025-09-06T22:00:00.000Z' }]
-      const input = { ...availabilityRecord, free: allFree() }
-
-      const result = markBusyHours(pollWithOverride, input, saturdayBusy)
-
-      expect(result.availability.free[2]).toEqual([false, true, true])
-      expect(result.markedBusyCount).toBe(1)
-      // The wider rows on the other dates are untouched -- a short row elsewhere does not shrink them.
-      expect(result.availability.free[0]).toEqual([true, true, true])
-      expect(result.availability.free[1]).toEqual([true, true, true])
-    })
-
-    it('should leave a stored date row that the poll no longer has untouched', () => {
-      // The other half of the same guard: availability can outlive a date. Dropping a date from the
-      // poll leaves records whose grid has more rows than the poll has dates, and the missing row
-      // has no calendar answer for any of its slots.
-      const shorterPoll: PollRecord = { ...session, dates: ['2025-09-04', '2025-09-05'] }
-      const input = { ...availabilityRecord, free: allFree() } // still 3 rows
-
-      const result = markBusyHours(shorterPoll, input, busy)
-
-      expect(result.availability.free[2]).toEqual([true, true, true])
-      expect(result.markedBusyCount).toBe(2) // only the two cells on the date the poll still has
-    })
-
-    it('should mark a dates-only poll busy only for a full-day block', () => {
-      const datesOnly: PollRecord = {
-        sessionId: session.sessionId,
-        name: session.name,
-        dates: session.dates,
-        usesTimes: false,
-        timezone: session.timezone,
-        expiration: session.expiration,
-      }
-      const input = { ...availabilityRecord, free: [[true], [true], [true]] }
-
-      const partial = markBusyHours(datesOnly, input, busy)
-      expect(partial.markedBusyCount).toBe(0)
-
-      // 2025-09-04T00:00 through 2025-09-05T00:00 America/Chicago -- the whole of dateIndex 0.
-      const allDay = [{ start: '2025-09-04T05:00:00.000Z', end: '2025-09-05T05:00:00.000Z' }]
-      const full = markBusyHours(datesOnly, input, allDay)
-      expect(full.availability.free[0][0]).toBe(false)
-      expect(full.markedBusyCount).toBe(1)
     })
   })
 

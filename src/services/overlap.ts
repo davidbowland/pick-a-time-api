@@ -88,31 +88,6 @@ export const buildBusyGrid = (poll: PollRecord, busyIntervals: { start: string; 
   })
 }
 
-export const markBusyHours = (
-  poll: PollRecord,
-  availability: AvailabilityRecord,
-  busyIntervals: { start: string; end: string }[],
-): { availability: AvailabilityRecord; markedBusyCount: number } => {
-  const busyGrid = buildBusyGrid(poll, busyIntervals)
-  let markedBusyCount = 0
-
-  // One-way by construction: a cell can only move from true to false here. `isFree && isBusy` is
-  // the sole path that writes anything, so no calendar response -- including one reporting an hour
-  // free -- can turn a cell back on.
-  const free = availability.free.map((row, dateIndex) =>
-    row.map((isFree, slotIndex) => {
-      const isBusy = busyGrid[dateIndex]?.[slotIndex] ?? false
-      if (isFree && isBusy) {
-        markedBusyCount += 1
-        return false
-      }
-      return isFree
-    }),
-  )
-
-  return { availability: { ...availability, free }, markedBusyCount }
-}
-
 export interface OverlapCell {
   dateIndex: number
   slotIndex: number
@@ -127,8 +102,15 @@ export interface OverlapGrid {
   bestSlot: { dateIndex: number; slotIndex: number; freeCount: number; freeUserIds: string[] }
 }
 
-// Stored availability is the only input. Calendar busy time reaches the grid by having been written
-// into someone's own availability by the sync endpoint, never by being subtracted again here.
+// Stored availability is the only input, and nothing writes calendar data into it: the busy layer is
+// strictly presentational, built by buildBusyGrid and served only to the person whose calendar it is
+// (ADR-1). It must never reach this function, findRecommendedMeetings, or any other results surface.
+//
+// This is not a preference. An earlier implementation did fold busy time into the numbers everyone
+// reads, and it was torn out for it: the result was un-overridable, because a participant who
+// painted a booked hour free had it removed again on the next read, and it published per-person
+// calendar occupancy to every holder of the poll link.
+// The one path from a calendar into these counts is a participant painting their own grid.
 export const computeGrid = (poll: PollRecord, availability: AvailabilityRecord[]): Pick<OverlapGrid, 'cells'> => {
   const slots = buildSlots(poll)
 

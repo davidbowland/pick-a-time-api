@@ -1,18 +1,30 @@
 import { ForbiddenError, NotFoundError, ValidationError } from '../errors'
 import { syncCalendarAccountForPoll } from '../services/calendar-sync'
-import { getAvailability, getCalendarAccount, getSession, getUser, updateAvailability } from '../services/dynamodb'
-import { markBusyHours } from '../services/overlap'
+import { getCalendarAccount, getSession, getUser } from '../services/dynamodb'
+import { buildBusyGrid } from '../services/overlap'
 import {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
-  AvailabilityRecord,
+  APIGatewayProxyStructuredResultV2,
   CalendarAccountRecord,
   PollRecord,
 } from '../types'
 import { extractAuthContext } from '../utils/auth'
+import { CalendarView } from '../utils/availability'
 import { log, logError, redactEvent, sanitizeErrorForLogging } from '../utils/logging'
 import { assertSessionActive } from '../utils/sessions'
 import status from '../utils/status'
+
+// AC-011. This route now returns busy data, so it inherits the authenticated read's cache policy
+// verbatim: the response carries a participant's calendar, and the CORS configuration sets
+// AllowCredentials: true, so any cache in front of the API would otherwise be free to key a grid on
+// the URL alone and hand one signed-in person's booked hours to the next caller of the same path.
+// no-store keeps it out of every cache; Vary: Authorization keeps any cache that honours the former
+// but not the latter keyed per bearer token.
+//
+// Applied to every response, not only the 200: a cached 403 is wrong for the same reason a cached
+// grid is, and the two differ only in which caller gets the wrong answer.
+const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store', Vary: 'Authorization' }
 
 const parseForce = (body: string | undefined): boolean => {
   try {
@@ -21,13 +33,6 @@ const parseForce = (body: string | undefined): boolean => {
     return false
   }
 }
-
-// markBusyHours writes on `isFree && isBusy` and nothing else, so against a grid with no free cell
-// a check cannot change anything whatever the calendar holds. Distinguishing "had nothing to mark"
-// from "found nothing to mark" is the whole point: only the former is safe to not count against the
-// poll's one automatic check, because a grid with nothing free contains no deliberate "I'm free
-// then" edit for a later check to overwrite.
-const hasFreeCell = (availability: AvailabilityRecord): boolean => availability.free.some((row) => row.some(Boolean))
 
 // Google is the one collaborator this handler cannot vouch for, so its failure gets its own return
 // path: a 502 says "the upstream calendar is down, try again", which a DynamoDB or code failure
@@ -51,11 +56,10 @@ const syncOrNull = async (
   }
 }
 
-export const postCalendarSync = async (
+const respond = async (
   event: APIGatewayProxyEventV2,
-  now: () => number = Date.now,
-): Promise<APIGatewayProxyResultV2> => {
-  log('Received event', redactEvent(event))
+  now: () => number,
+): Promise<APIGatewayProxyStructuredResultV2> => {
   try {
     const sessionId = event.pathParameters?.sessionId as string
     const userId = event.pathParameters?.userId as string
@@ -66,98 +70,88 @@ export const postCalendarSync = async (
     }
 
     const { session } = await getSession(sessionId)
-    assertSessionActive(session)
+    assertSessionActive(session, now)
 
-    // {userId} is a free path parameter: anyone holding the poll link can name any participant.
-    // Everything below reads and writes that participant's own availability, so the caller has to
-    // BE them. Without this the response would hand a stranger the victim's calendarCheckedAt --
-    // proof of whether they connected a calendar, the one thing stripCalendarCheckedAt exists to
-    // hide -- and would mark the victim busy at the ATTACKER's meeting times.
+    // {userId} is a free path parameter: anyone holding the poll link can name any participant. This
+    // response carries calendar data, so the caller has to BE the participant they name -- otherwise
+    // it would hand a stranger the victim's booked hours, and even an empty grid would answer
+    // "did they connect a calendar?", the one thing stripCalendarCheckedAt exists to hide.
     //
-    // A null googleSub is not a match. Someone who joined anonymously and later signed in keeps
-    // null until POST /users/authed or PATCH /users/{userId}/authed links their account; claiming
-    // the record here by writing auth.googleSub onto it would let anyone claim any anonymous
+    // A null googleSub is not a match. Someone who joined anonymously and later signed in keeps null
+    // until POST /users/authed or PATCH /users/{userId}/authed links their account; claiming the
+    // record here by writing auth.googleSub onto it would let anyone claim any anonymous
     // participant, which is a wider hole than the one this closes. They link, then they check.
     const user = await getUser(sessionId, userId)
     if (user.googleSub !== auth.googleSub) {
       throw new ForbiddenError('You can only check your own calendar')
     }
 
+    // The caller's own calendar, and never anybody else's: googleSub arrives from the verified JWT,
+    // not from the path and not from the participant record.
     const account = await getCalendarAccount(auth.googleSub)
     if (!account) {
       throw new ValidationError('No calendar is connected for this account')
     }
 
-    const availability = await getAvailability(sessionId, userId)
-    const force = parseForce(event.body)
-
-    // Answered before the checkedAt short-circuit below and before any Google call, because it is
-    // true regardless of either. Connecting a calendar before painting anything is the natural
-    // order -- connecting is the thing that promises to save you the painting -- and stamping
-    // calendarCheckedAt here is what used to spend the poll's one automatic check on a grid the
-    // calendar could not touch, leaving everything painted afterwards permanently unchecked.
-    if (!hasFreeCell(availability)) {
-      return {
-        ...status.OK,
-        body: JSON.stringify({
-          applied: false,
-          availability,
-          lastSyncedAt: account.lastSyncedAt,
-          markedBusyCount: 0,
-        }),
-      }
-    }
-
-    // The server owns the "when does a check fire" rule. Nothing records which hours came from a
-    // calendar, so an unforced re-check would silently undo a deliberate "I'm free then" edit with
-    // no way to explain it. One check per poll, plus whatever the person asks for explicitly.
-    if (!force && availability.calendarCheckedAt !== null) {
-      return {
-        ...status.OK,
-        body: JSON.stringify({
-          applied: false,
-          availability,
-          lastSyncedAt: account.lastSyncedAt,
-          markedBusyCount: 0,
-        }),
-      }
-    }
-
-    const synced = await syncOrNull(account, session, now, force)
-    // A record that came back marked 'error' carries the busy data from some earlier successful
-    // fetch, not from this check. Marking hours from that cache and answering 200 would tell the
-    // person their calendar was just read when Google never answered -- and would burn their one
-    // unforced check on data that is only as fresh as the outage is old. Say the upstream failed.
+    // Stored availability is not read, let alone written. A check is a refresh of the cached
+    // intervals and nothing else, which is what makes it idempotent and safe to repeat -- and is why
+    // the one-check-per-poll lock and its calendarCheckedAt stamp are gone (AC-001, ADR-2). Force is
+    // what a person pressing "Check again" asks for: a real Google round trip rather than a cached
+    // one. The freshness window inside the sync service is the only rate limit left.
+    const synced = await syncOrNull(account, session, now, parseForce(event.body))
+    // A record that came back marked 'error' carries busy data from some earlier successful fetch,
+    // not from this check. Serving it and answering 200 would tell the person their calendar was
+    // just read when Google never answered, and they have no way to tell a stale booked hour from a
+    // current one. Unlike the authenticated READ -- which is entitled to survive an outage, since
+    // nobody asked it to reach Google -- a sync IS the request to reach Google, so failing to reach
+    // it is a real failure and says so.
     if (!synced || synced.status === 'error') {
       return status.BAD_GATEWAY
     }
 
-    const { availability: updated, markedBusyCount } = markBusyHours(session, availability, synced.busyIntervals)
-    // Two very different failures both surface as "it marked nothing": a calendar Google reported as
-    // empty, and a calendar whose bookings simply miss the poll's hours. Only the interval count
-    // separates them, and this check spends the poll's one automatic go either way, so record it.
-    log('Calendar check complete', { busyIntervalCount: synced.busyIntervals.length, markedBusyCount })
-    const stamped = { ...updated, calendarCheckedAt: Math.floor(now() / 1000) }
-    await updateAvailability(sessionId, userId, stamped)
-
-    return {
-      ...status.OK,
-      body: JSON.stringify({
-        applied: true,
-        availability: stamped,
-        lastSyncedAt: synced.lastSyncedAt,
-        markedBusyCount,
-      }),
+    // The same three values the authenticated read serves, assembled as one unit so they can never
+    // be taken from different reads. calendarStatus is 'connected' by construction on this path --
+    // an errored record left as a 502 above and a missing one as a 400 -- and is carried anyway so
+    // the client can feed this response into exactly the cache entry the read populates.
+    const calendar: CalendarView = {
+      busy: buildBusyGrid(session, synced.busyIntervals),
+      calendarStatus: 'connected',
+      // The window that was actually read, straight off the record rather than derived from
+      // poll.dates: a poll outside the retention window comes back untouched and still 'connected',
+      // so naming its dates here would claim a coverage that was never fetched.
+      busyWindow: synced.syncedRange,
     }
+
+    // Counts only. Two very different outcomes both come back drawing nothing -- a calendar Google
+    // reported as empty, and one whose bookings simply miss the poll's hours -- and only these two
+    // numbers separate them. The intervals, the window dates, and the grid are somebody's schedule
+    // and have no business in a log (AC-012).
+    log('Calendar check complete', {
+      busyIntervalCount: synced.busyIntervals.length,
+      busySlotCount: calendar.busy.reduce((total, row) => total + row.filter(Boolean).length, 0),
+    })
+
+    return { ...status.OK, body: JSON.stringify({ ...calendar, lastSyncedAt: synced.lastSyncedAt }) }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND
     if (error instanceof ForbiddenError)
       return { ...status.FORBIDDEN, body: JSON.stringify({ message: error.message }) }
     if (error instanceof ValidationError)
       return { ...status.BAD_REQUEST, body: JSON.stringify({ message: error.message }) }
+    // Never the raw error: an axios failure out of refreshAccessToken carries config.data, which for
+    // the Google token endpoint holds the client_secret and the refresh token in full.
     logError(sanitizeErrorForLogging(error))
     return status.INTERNAL_SERVER_ERROR
   }
+}
+
+export const postCalendarSync = async (
+  event: APIGatewayProxyEventV2,
+  now: () => number = Date.now,
+): Promise<APIGatewayProxyStructuredResultV2> => {
+  log('Received event', redactEvent(event))
+  const result = await respond(event, now)
+  return { ...result, headers: PRIVATE_HEADERS }
 }
 
 // Lambda calls the exported handler as handler(event, context), so the injected clock cannot be the

@@ -19,9 +19,18 @@ export interface AvailabilityRead {
 //
 // The record is returned exactly as stored, calendarCheckedAt included: what a given caller may see
 // is that caller's decision, and the two routes decide differently.
-export const readAvailabilityRecord = async (sessionId: string, userId: string): Promise<AvailabilityRead> => {
+//
+// The clock is threaded through to assertSessionActive rather than left to its default, per the
+// project's rule that anything deciding an outcome from Date.now() must be passable in. It sits
+// third, after both path parameters, where no caller supplies an argument today -- so the default
+// keeps every existing call site unchanged and nothing can land in the slot by accident.
+export const readAvailabilityRecord = async (
+  sessionId: string,
+  userId: string,
+  now: () => number = Date.now,
+): Promise<AvailabilityRead> => {
   const { session } = await getSession(sessionId)
-  assertSessionActive(session)
+  assertSessionActive(session, now)
 
   const availability = await getAvailability(sessionId, userId)
   return { availability, session }
