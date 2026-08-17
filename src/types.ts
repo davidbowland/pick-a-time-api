@@ -1,4 +1,10 @@
-export { APIGatewayProxyEventV2, APIGatewayProxyResultV2, Callback, Context } from 'aws-lambda'
+export {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyResultV2,
+  APIGatewayProxyStructuredResultV2,
+  Callback,
+  Context,
+} from 'aws-lambda'
 
 export interface PatchOperation {
   op: 'replace' | 'add' | 'test'
@@ -54,15 +60,41 @@ export interface AvailabilityRecord {
   expiration: number
 }
 
+export interface DateWindow {
+  start: string // ISO "YYYY-MM-DD", inclusive
+  end: string // ISO "YYYY-MM-DD", inclusive
+}
+
 export interface CalendarAccountRecord {
   googleSub: string
   refreshTokenEncrypted: string // KMS-encrypted, base64
   scope: string
   status: 'connected' | 'error'
   lastSyncedAt: number
-  syncedRange: { start: string; end: string } | null // ISO dates covered by busyIntervals
+  syncedRange: DateWindow | null // ISO dates covered by busyIntervals
   busyIntervals: { start: string; end: string }[] // raw UTC instants from Google's freebusy response
   expiration: number
+}
+
+// What the client is told about the calendar behind a busy grid. Three states, not two, and the
+// distinction is load-bearing: an errored connection and a connected calendar with nothing booked
+// both produce an all-false grid, so without this the client cannot tell "we could not reach your
+// calendar" from "your calendar is clear" -- and those get opposite copy (AC-030, AC-034, AC-042).
+export type CalendarStatus = 'connected' | 'error' | 'not_connected'
+
+// The owner-only availability response. `free` and `busy` share their dimensions by construction:
+// both are built from the same PollRecord in the same request, which is why they are served from
+// one route rather than two (ADR-1).
+export interface OwnerAvailabilityResponse {
+  userId: string
+  free: boolean[][]
+  expiration: number
+  busy: boolean[][] // [dateIndex][slotIndex]; all false whenever calendarStatus is not 'connected'
+  calendarStatus: CalendarStatus
+  // The date range the calendar was actually read over -- the cached record's syncedRange, never the
+  // poll's own dates. A poll outside the retention window comes back 'connected' with a window that
+  // does not reach it, and naming the poll's dates here would claim a coverage that was never fetched.
+  busyWindow: DateWindow | null
 }
 
 // Input types

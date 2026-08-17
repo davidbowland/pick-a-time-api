@@ -23,12 +23,23 @@ export const session: PollRecord = {
 
 export const userId = 'fuzzy-penguin'
 
+// The Google `sub` claim of the signed-in caller in the authenticated event fixtures. It lives here
+// rather than beside the calendar record because it identifies a person, not a calendar, and
+// ownedUserRecord below has to be able to reference it.
+export const googleSub = 'google-sub-123'
+
 export const userRecord: UserRecord = {
   userId: 'fuzzy-penguin',
   googleSub: null,
   name: null,
   expiration: 1728547851,
 }
+
+// userRecord carries googleSub: null -- someone who joined anonymously and never linked a Google
+// account. Every authenticated route that acts on a participant's own data requires the record's sub
+// to equal the caller's, so any suite exercising a happy path on one of those routes needs the
+// linked variant. Mismatches and nulls stay opt-in per test, which is what keeps them visible.
+export const ownedUserRecord: UserRecord = { ...userRecord, googleSub }
 
 // Availability
 
@@ -44,8 +55,6 @@ export const availabilityRecord: AvailabilityRecord = {
 }
 
 // Calendar
-
-export const googleSub = 'google-sub-123'
 
 export const calendarAccountRecord: CalendarAccountRecord = {
   googleSub: 'google-sub-123',
