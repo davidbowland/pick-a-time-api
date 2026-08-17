@@ -59,5 +59,10 @@ Thumbs.db
 .superpowers/
 .vscode
 .worktrees/
-docs/
+# docs/* rather than docs/, because git will not re-include a path inside an excluded
+# directory -- the parent has to stay traversable for the negation below to bite.
+# Planning artifacts are the record of why the code looks the way it does, so they ship
+# with it. The rest of docs/ stays local.
+docs/*
+!docs/planning/
 tsconfig.tsbuildinfo

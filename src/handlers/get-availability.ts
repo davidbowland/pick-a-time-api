@@ -1,9 +1,8 @@
 import { NotFoundError } from '../errors'
-import { getAvailability, getSession } from '../services/dynamodb'
+import { readAvailabilityRecord } from '../services/availability'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { stripCalendarCheckedAt } from '../utils/availability'
 import { log, logError, redactEvent } from '../utils/logging'
-import { assertSessionActive } from '../utils/sessions'
 import status from '../utils/status'
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
@@ -12,10 +11,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     const sessionId = event.pathParameters?.sessionId as string
     const userId = event.pathParameters?.userId as string
 
-    const { session } = await getSession(sessionId)
-    assertSessionActive(session)
-
-    const availability = await getAvailability(sessionId, userId)
+    const { availability } = await readAvailabilityRecord(sessionId, userId)
     return { ...status.OK, body: JSON.stringify(stripCalendarCheckedAt(availability)) }
   } catch (error) {
     if (error instanceof NotFoundError) return status.NOT_FOUND

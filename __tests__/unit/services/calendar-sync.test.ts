@@ -1,4 +1,5 @@
 import { calendarAccountRecord, session } from '../__mocks__'
+import { CALENDAR_ACCOUNT_TTL_SECONDS, maxCachedBusyIntervals } from '@config'
 import { syncCalendarAccountForPoll } from '@services/calendar-sync'
 import * as dynamodb from '@services/dynamodb'
 import * as googleCalendar from '@services/google-calendar'
@@ -198,7 +199,12 @@ describe('calendar-sync', () => {
       expect(JSON.stringify(loggedCall)).not.toContain('shh-refresh-token')
     })
 
-    it('should still return the synced record when persisting the success-path result fails', async () => {
+    // A throttled write is not a reason to blank a grid that is perfectly valid: the intervals came
+    // back from Google in this very call, so they are served. What must NOT happen is the served
+    // copy claiming to have been recorded -- lastSyncedAt and expiration describe what is in the
+    // table, and nothing reached the table, so they stay where the stored record left them and the
+    // next check treats this copy as stale instead of trusting a write that never landed.
+    it('should serve the fresh grid but leave the stored stamps alone when the success-path write fails', async () => {
       const outOfRangeRecord = { ...calendarAccountRecord, syncedRange: { start: '2020-01-01', end: '2020-01-31' } }
       const rawInterval = { start: '2025-09-04T21:00:00.000Z', end: '2025-09-04T22:00:00.000Z' }
       jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce([rawInterval])
@@ -208,7 +214,12 @@ describe('calendar-sync', () => {
 
       expect(result.status).toBe('connected')
       expect(result.busyIntervals).toEqual([rawInterval])
-      expect(logError).toHaveBeenCalledWith('Failed to persist calendar account sync result', expect.any(Error))
+      expect(result.lastSyncedAt).toBe(outOfRangeRecord.lastSyncedAt)
+      expect(result.expiration).toBe(outOfRangeRecord.expiration)
+      expect(logError).toHaveBeenCalledWith(
+        'Failed to persist calendar account sync result',
+        'ProvisionedThroughputExceeded',
+      )
     })
 
     it('should still return the error-flagged record when persisting the failure-path fallback fails', async () => {
@@ -220,7 +231,163 @@ describe('calendar-sync', () => {
 
       expect(result.status).toBe('error')
       expect(result.busyIntervals).toEqual(calendarAccountRecord.busyIntervals)
-      expect(logError).toHaveBeenCalledWith('Failed to persist calendar account sync result', expect.any(Error))
+      expect(result.lastSyncedAt).toBe(calendarAccountRecord.lastSyncedAt)
+      expect(logError).toHaveBeenCalledWith(
+        'Failed to persist calendar account sync result',
+        'ProvisionedThroughputExceeded',
+      )
+    })
+
+    // The record is the read path now, so it has to stay small enough to write. syncedRange only
+    // ever unioned outward, nothing pruned busyIntervals, and the item lives 90 days -- growth had
+    // no ceiling at all. The ceiling is a window anchored to today:
+    // [today - sessionExpireHours, today + maxPollDateRangeDays]. `freshNow` is 2024-10-10T07:56Z,
+    // so with SESSION_EXPIRE_HOURS=336 and maxPollDateRangeDays=365 that window is
+    // [2024-09-26, 2025-10-10].
+    describe('retention window', () => {
+      const staleRecord = { ...calendarAccountRecord, lastSyncedAt: 0 }
+
+      // The boundary is NOT derived from the poll TTL, and this is the test that proves it. Poll
+      // dates may legally run to +365d while the TTL is 336h; a TTL-derived forward arm would prune
+      // the intervals this very call just fetched, rangeCoversDates could never hold afterwards, and
+      // every poll open would hit Google with nothing to show for it.
+      it('should keep the intervals just fetched for a poll whose dates run a year out', async () => {
+        const farOutPoll = { ...session, dates: ['2025-10-08', '2025-10-09', '2025-10-10'] }
+        const farOutInterval = { start: '2025-10-09T15:00:00.000Z', end: '2025-10-09T16:00:00.000Z' }
+        jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce([farOutInterval])
+
+        const result = await syncCalendarAccountForPoll({ ...staleRecord, syncedRange: null }, farOutPoll, freshNow)
+
+        expect(googleCalendar.fetchFreeBusy).toHaveBeenCalledWith(
+          'access-token',
+          '2025-10-07T10:00:00.000Z',
+          '2025-10-11T12:00:00.000Z',
+        )
+        expect(result.busyIntervals).toEqual([farOutInterval])
+        expect(result.syncedRange).toEqual({ start: '2025-10-08', end: '2025-10-10' })
+        expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(
+          expect.objectContaining({ busyIntervals: [farOutInterval] }),
+        )
+      })
+
+      it('should clamp a synced range that reaches further back than the retention window', async () => {
+        const ancientRange = { ...staleRecord, syncedRange: { start: '2023-01-01', end: '2025-09-06' } }
+
+        const result = await syncCalendarAccountForPoll(ancientRange, session, freshNow)
+
+        expect(result.syncedRange).toEqual({ start: '2024-09-26', end: '2025-09-06' })
+        expect(googleCalendar.fetchFreeBusy).toHaveBeenCalledWith(
+          'access-token',
+          '2024-09-25T10:00:00.000Z', // 2024-09-26T00:00:00Z minus 14h -- the clamped start, not 2023-01-01
+          '2025-09-07T12:00:00.000Z',
+        )
+      })
+
+      it('should prune intervals outside the retention window before writing', async () => {
+        const outside = { start: '2023-05-01T15:00:00.000Z', end: '2023-05-01T16:00:00.000Z' }
+        const inside = { start: '2025-09-04T21:00:00.000Z', end: '2025-09-04T22:00:00.000Z' }
+        jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce([outside, inside])
+
+        const result = await syncCalendarAccountForPoll(staleRecord, session, freshNow)
+
+        expect(result.busyIntervals).toEqual([inside])
+        expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(expect.objectContaining({ busyIntervals: [inside] }))
+      })
+
+      // The backward arm exists because a live poll may legitimately hold dates already past. A poll
+      // entirely behind it can never be cached, so asking Google for a window we would prune to
+      // nothing on write is a round trip that can only come back useless.
+      it('should not call Google for a poll whose dates all precede the retention window', async () => {
+        const pastPoll = { ...session, dates: ['2024-09-01', '2024-09-02'] }
+
+        const result = await syncCalendarAccountForPoll(staleRecord, pastPoll, freshNow)
+
+        expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+        expect(dynamodb.putCalendarAccount).not.toHaveBeenCalled()
+        expect(result).toEqual(staleRecord)
+      })
+
+      it('should fetch only the poll dates that fall inside the retention window', async () => {
+        const mixedPoll = { ...session, dates: ['2024-09-01', '2024-10-11'] }
+
+        await syncCalendarAccountForPoll({ ...staleRecord, syncedRange: null }, mixedPoll, freshNow)
+
+        expect(googleCalendar.fetchFreeBusy).toHaveBeenCalledWith(
+          'access-token',
+          '2024-10-10T10:00:00.000Z', // anchored to 2024-10-11, not to the out-of-window 2024-09-01
+          '2024-10-12T12:00:00.000Z',
+        )
+      })
+
+      // Dropping the oldest intervals to fit would hand back a grid that looks complete and is not.
+      // Refusing the write serves the last cache that WAS complete and says so out loud.
+      it('should fail loudly rather than store a silently truncated interval set', async () => {
+        const oneTooMany = Array.from({ length: maxCachedBusyIntervals + 1 }, () => ({
+          start: '2025-09-04T21:00:00.000Z',
+          end: '2025-09-04T22:00:00.000Z',
+        }))
+        jest.mocked(googleCalendar).fetchFreeBusy.mockResolvedValueOnce(oneTooMany)
+
+        const result = await syncCalendarAccountForPoll(staleRecord, session, freshNow)
+
+        expect(result.status).toBe('error')
+        expect(result.busyIntervals).toEqual(calendarAccountRecord.busyIntervals)
+        expect(dynamodb.putCalendarAccount).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'connected' }))
+        expect(logError).toHaveBeenCalledWith(
+          'Calendar sync failed, serving cached busy data',
+          expect.stringContaining('exceed the cached interval cap'),
+        )
+      })
+    })
+
+    // The OAuth callback's comment claimed the 90-day clock was "refreshed on every successful
+    // sync" and the published privacy policy says the same. Neither was true: the record was
+    // spread without ever touching expiration, so the clock ran from the moment of connecting.
+    describe('retention clock', () => {
+      it('should extend expiration from the moment of a successful check', async () => {
+        const staleRecord = { ...calendarAccountRecord, lastSyncedAt: 0 }
+
+        const result = await syncCalendarAccountForPoll(staleRecord, session, freshNow)
+
+        const expected = Math.floor(freshNow() / 1000) + CALENDAR_ACCOUNT_TTL_SECONDS
+        expect(result.expiration).toBe(expected)
+        expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(expect.objectContaining({ expiration: expected }))
+      })
+
+      it('should leave expiration alone when the check fails', async () => {
+        const staleRecord = { ...calendarAccountRecord, lastSyncedAt: 0 }
+        jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(new Error('invalid_grant'))
+
+        const result = await syncCalendarAccountForPoll(staleRecord, session, freshNow)
+
+        expect(result.status).toBe('error')
+        expect(result.expiration).toBe(calendarAccountRecord.expiration)
+      })
+    })
+  })
+
+  // Two polls whose dates do not overlap, read alternately by one signed-in person. Replacing the
+  // range instead of unioning it made rangeCoversDates fail on every request, so the freshness
+  // window -- the only rate limit left once the per-poll lock went -- was never reached at all.
+  describe('disjoint poll ranges', () => {
+    // Both inside the retention window the fixture clock (2024-10-10) produces, and disjoint from
+    // each other: the fixture's own syncedRange is 2025-09-04..06, and June touches none of it.
+    const septemberPoll = { ...session, dates: ['2025-09-04', '2025-09-05'] }
+    const junePoll = { ...session, dates: ['2025-06-01', '2025-06-02'] }
+
+    it('should union across the gap rather than replace, so the earlier poll stays covered', async () => {
+      const afterJune = await syncCalendarAccountForPoll(calendarAccountRecord, junePoll, freshNow)
+
+      expect(afterJune.syncedRange).toEqual({ end: '2025-09-06', start: '2025-06-01' })
+    })
+
+    it('should make no Google call when alternating between two disjoint polls inside the window', async () => {
+      const afterJune = await syncCalendarAccountForPoll(calendarAccountRecord, junePoll, freshNow)
+      jest.mocked(googleCalendar).fetchFreeBusy.mockClear()
+
+      await syncCalendarAccountForPoll(afterJune, septemberPoll, freshNow)
+
+      expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
     })
   })
 })

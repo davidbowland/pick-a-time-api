@@ -55,7 +55,9 @@ describe('get-overlap', () => {
   describe('calendar is not consulted at read time', () => {
     // The connected user's busyIntervals cover 2025-09-04 16:00-17:00 America/Chicago, which is
     // cells[0][0]. Their stored availability says free there, and stored availability is the only
-    // source of truth now -- calendar busy time is written into it by the sync endpoint instead.
+    // source of truth: nothing writes calendar data into it any more, and the busy layer is
+    // presentational, served only to its owner by the authenticated read (ADR-1, ADR-2). A results
+    // surface that subtracted it here would be un-overridable and would leak per-person occupancy.
     const connectedUser = { ...userRecord, googleSub: calendarAccountRecord.googleSub }
     const allFree = {
       ...availabilityRecord,
@@ -76,6 +78,18 @@ describe('get-overlap', () => {
 
       const body = JSON.parse((result as { body: string }).body)
       expect(body.grid.cells[0][0].freeUserIds).toContain(allFree.userId)
+    })
+
+    // AC-005 and AC-009 together: the results surface is unauthenticated, so a busy grid reaching it
+    // would hand every link-holder a per-person read of who is booked when. The response carries
+    // stored `free` counts and nothing else -- no busy grid, and no key named after one.
+    it('should carry no busy-derived value in the response', async () => {
+      jest.mocked(dynamodb).getAllUsers.mockResolvedValueOnce([connectedUser])
+      jest.mocked(dynamodb).getAllAvailability.mockResolvedValueOnce([allFree])
+
+      const result = await handler(baseEvent)
+
+      expect((result as { body: string }).body).not.toContain('busy')
     })
 
     it('should not sync any calendar while reading', async () => {

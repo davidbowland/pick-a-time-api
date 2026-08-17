@@ -40,6 +40,7 @@ Mappings:
       logStreamFunction: log-subscriber
       maxPollDates: '90'
       maxUsersPerSession: '20'
+      calendarSyncFreshnessMs: '1800000'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions
       ssmParamPrefix: /pick-a-time
@@ -52,6 +53,7 @@ Mappings:
       logStreamFunction: log-subscriber-test
       maxPollDates: '90'
       maxUsersPerSession: '20'
+      calendarSyncFreshnessMs: '1800000'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions-test
       ssmParamPrefix: /pick-a-time-test
@@ -733,6 +735,104 @@ Resources:
       FilterPattern: '[timestamp, uuid, level="ERROR", message]'
       LogGroupName: !Ref GetAvailabilityLogGroup
 
+  GetAvailabilityAuthedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/get-availability-authed.handler
+      MemorySize: 1536
+      Description: pick-a-time-api get user availability with the caller's own calendar (authenticated)
+      # Enumerated deliberately rather than copied from PostCalendarSyncFunction. Per ADR-3 this read
+      # calls syncCalendarAccountForPoll, so the whole refresh path runs on a poll open: the two
+      # Google client SecureStrings are read, the stored refresh token is decrypted, and the
+      # refreshed record is written back. A grant covering only the read would 500 on every open.
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        # Crud, not Read: syncCalendarAccountForPoll writes the refreshed calendar account record
+        # back through putCalendarAccount on every check that actually reaches Google.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - Statement:
+            # refreshAccessToken reads both, via getGoogleCalendarClientId/getGoogleCalendarClientSecret.
+            # The prefix is per-environment: prod and test deploy into the same account and are kept
+            # apart by the parameter tree alone.
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-id'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+                - !Sub
+                  - 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${Prefix}/google-client-secret'
+                  - Prefix: !FindInMap [EnvironmentMap, !Ref Environment, ssmParamPrefix]
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource:
+                # Two keys, and BOTH are required -- do not delete either as dead weight.
+                #
+                # The first is the account's aws/ssm key: SecureString parameters decrypt under it,
+                # so without it the two GetParameter grants above return ciphertext.
+                #
+                # The second is CalendarTokenKey, which encrypts refresh tokens at rest today.
+                # PostCalendarSyncFunction carries the same pair for the same reason.
+                - !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/74085ce3-4f95-4edd-99d4-0bb17aa7b879'
+                - !GetAtt CalendarTokenKey.Arn
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref SessionsTable
+          KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
+          # Both are read by services/calendar-sync.ts and both fail at runtime, not at deploy, if
+          # absent: SESSION_EXPIRE_HOURS is the backward arm of retentionWindow, and parseInt(undefined)
+          # makes it NaN, which throws RangeError out of new Date(NaN).toISOString() before any
+          # try/catch -- a 500 on every open. CALENDAR_SYNC_FRESHNESS_MS gone NaN fails every freshness
+          # comparison silently instead, which removes the only rate limit in front of Google.
+          SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
+          CALENDAR_SYNC_FRESHNESS_MS: !FindInMap [EnvironmentMap, !Ref Environment, calendarSyncFreshnessMs]
+      Events:
+        Http:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /sessions/{sessionId}/users/{userId}/availability/authed
+            Method: get
+            Auth:
+              Authorizer: CognitoAuthorizer
+      # 30, not the 60 its unauthenticated sibling uses, and matching PostCalendarSyncFunction: this
+      # route reaches Google and then writes, and the HTTP API integration gives up at ~29s. A longer
+      # Lambda outlives its own caller and can persist a record after the client has seen a 504.
+      Timeout: 30
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2024'
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/get-availability-authed.ts
+
+  GetAvailabilityAuthedLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetAvailabilityAuthedFunction}
+      RetentionInDays: 30
+      Tags:
+        - Key: 'created-by'
+          Value: 'pick-a-time-api'
+        - Key: 'created-for'
+          Value: 'pick-a-time'
+        - Key: 'environment'
+          Value: !Ref Environment
+
+  GetAvailabilityAuthedLogGroupSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !Sub
+        - 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Function}'
+        - Function: !FindInMap [EnvironmentMap, !Ref Environment, logStreamFunction]
+      FilterPattern: '[timestamp, uuid, level="ERROR", message]'
+      LogGroupName: !Ref GetAvailabilityAuthedLogGroup
+
   GetOverlapFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -1004,7 +1104,11 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref SessionsTable
           KMS_CALENDAR_KEY_ID: !Ref CalendarTokenKey
-          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
+          # Required since retentionWindow started deriving its backward arm from sessionExpireHours.
+          # Without it parseInt(undefined) is NaN and new Date(NaN).toISOString() throws before this
+          # handler's try/catch is reached -- a 500 on every check, at runtime, not at deploy.
+          SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
+          CALENDAR_SYNC_FRESHNESS_MS: !FindInMap [EnvironmentMap, !Ref Environment, calendarSyncFreshnessMs]
       Events:
         Http:
           Type: HttpApi

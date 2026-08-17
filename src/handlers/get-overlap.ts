@@ -16,9 +16,12 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
     const availability = await getAllAvailability(sessionId)
 
-    // Reading results never touches anybody's calendar. Busy time is already folded into stored
-    // availability by the sync endpoint, so filtering again here would subtract a synced person
-    // twice -- and a GET that rewrote people's hours as a side effect was never defensible.
+    // Reading results never touches anybody's calendar, and no calendar has ever touched the stored
+    // availability being read: busy time is a presentational layer served only to its owner by the
+    // authenticated availability route (ADR-1, ADR-2). Subtracting it here would make it
+    // un-overridable -- a hour painted free would be removed again on every read -- and would
+    // publish per-person calendar occupancy to every holder of the poll link, which is exactly what
+    // this route must not do. Stored `free` is the whole input.
     const { cells } = computeGrid(session, availability)
     const recommendedMeetings = findRecommendedMeetings(session, availability, 3)
     const grid = { cells, bestSlot: pickBestSlot(recommendedMeetings) }

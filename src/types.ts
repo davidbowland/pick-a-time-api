@@ -1,4 +1,10 @@
-export { APIGatewayProxyEventV2, APIGatewayProxyResultV2, Callback, Context } from 'aws-lambda'
+export {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyResultV2,
+  APIGatewayProxyStructuredResultV2,
+  Callback,
+  Context,
+} from 'aws-lambda'
 
 export interface PatchOperation {
   op: 'replace' | 'add' | 'test'
@@ -47,11 +53,23 @@ export interface UserRecord {
 export interface AvailabilityRecord {
   userId: string
   free: boolean[][] // [dateIndex][slotIndex]; slotIndex always 0 when the poll's usesTimes is false
-  // Epoch seconds of the last calendar check in THIS poll, or null if there has never been one.
-  // Deliberately not provenance: it records that a check ran, never which hours it touched, so
-  // nothing derived from it can distinguish a calendar-marked hour from a hand-unmarked one.
+  // WRITE-DEAD. It once held epoch seconds of the last calendar check in this poll, and existed to
+  // enforce one automatic check per poll -- a lock that was only ever needed because the check
+  // rewrote stored availability and could not be undone. The check no longer writes anything
+  // (ADR-2), so the lock went with it and the only writer left is post-user.ts, which writes null.
+  //
+  // The field survives anyway, and deliberately. Records written before this change still carry a
+  // real timestamp; dropping the field would leave them failing to parse, and dropping
+  // stripCalendarCheckedAt or the undefined-to-null backfill in dynamodb.ts would let a legacy
+  // non-null value reach an unauthenticated response -- where it answers "did this participant
+  // connect a calendar?" for anyone holding the poll link. It is read and stripped, never set.
   calendarCheckedAt: number | null
   expiration: number
+}
+
+export interface DateWindow {
+  start: string // ISO "YYYY-MM-DD", inclusive
+  end: string // ISO "YYYY-MM-DD", inclusive
 }
 
 export interface CalendarAccountRecord {
@@ -60,9 +78,30 @@ export interface CalendarAccountRecord {
   scope: string
   status: 'connected' | 'error'
   lastSyncedAt: number
-  syncedRange: { start: string; end: string } | null // ISO dates covered by busyIntervals
+  syncedRange: DateWindow | null // ISO dates covered by busyIntervals
   busyIntervals: { start: string; end: string }[] // raw UTC instants from Google's freebusy response
   expiration: number
+}
+
+// What the client is told about the calendar behind a busy grid. Three states, not two, and the
+// distinction is load-bearing: an errored connection and a connected calendar with nothing booked
+// both produce an all-false grid, so without this the client cannot tell "we could not reach your
+// calendar" from "your calendar is clear" -- and those get opposite copy (AC-030, AC-034, AC-042).
+export type CalendarStatus = 'connected' | 'error' | 'not_connected'
+
+// The owner-only availability response. `free` and `busy` share their dimensions by construction:
+// both are built from the same PollRecord in the same request, which is why they are served from
+// one route rather than two (ADR-1).
+export interface OwnerAvailabilityResponse {
+  userId: string
+  free: boolean[][]
+  expiration: number
+  busy: boolean[][] // [dateIndex][slotIndex]; all false whenever calendarStatus is not 'connected'
+  calendarStatus: CalendarStatus
+  // The date range the calendar was actually read over -- the cached record's syncedRange, never the
+  // poll's own dates. A poll outside the retention window comes back 'connected' with a window that
+  // does not reach it, and naming the poll's dates here would claim a coverage that was never fetched.
+  busyWindow: DateWindow | null
 }
 
 // Input types

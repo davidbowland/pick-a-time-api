@@ -27,9 +27,9 @@
     "update": "ncu --doctor --target minor --upgrade && npm audit fix --audit-level=none && npm run test && npm dedupe"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1109.0",
-    "@aws-sdk/client-kms": "^3.1109.0",
-    "@aws-sdk/client-ssm": "^3.1109.0",
+    "@aws-sdk/client-dynamodb": "^3.1112.0",
+    "@aws-sdk/client-kms": "^3.1112.0",
+    "@aws-sdk/client-ssm": "^3.1112.0",
     "axios": "^1.19.0",
     "axios-retry": "^4.5.0",
     "esbuild": "^0.28.2",
