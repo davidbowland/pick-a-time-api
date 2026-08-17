@@ -352,3 +352,57 @@ D-22 · phase 4 · AC-039 was false, and the fill is what falsifies it
                   credential — so this breaks joining without a Google account.
   Picked:     (a) — AC-043. The honest claim is the one about storage, not about inference.
 ```
+
+```
+D-23 · build · Final review — one blocking finding, and it was self-inflicted
+  The strip's empty-calendar line named the server's syncedRange, which D-21's own union fix had
+  just widened to span every poll a person is in. A poll in August could therefore report
+  "nothing booked, Aug 20-Dec 3" while December was full: the count behind that sentence only
+  ever inspected this poll's slots. Fixed by intersecting the reported window with the poll's own
+  span -- say what was inspected, not what was fetched.
+  The rate-limit fix and this defect are the same change seen from two sides, which is the kind
+  of thing only a whole-diff review finds.
+```
+
+```
+D-24 · build · A non-blocking finding deliberately NOT fixed — needs a decision
+  Finding: an errored calendar record is excluded from the freshness window entirely
+  (calendar-sync.ts, the `record.status !== 'error'` clause). ADR-3 puts this call on every poll
+  open, so a REVOKED refresh token now costs a KMS decrypt, a Google token call and a DynamoDB
+  write on every single page load, forever, with no backoff.
+  Candidates: (a) leave it — a broken connection retries instantly and is noticed at once
+              (b) give errored records a shorter freshness window (e.g. a sixth of the normal one)
+                  rather than none; `force` — which is what "Try again" sends — still bypasses
+              (c) an explicit backoff schedule on consecutive failures
+  Not picked. (b) was implemented, tested, and then REVERTED: it reverses a9bd196, a deliberate
+  incident-driven decision made because a single transient Google failure once pinned an account
+  for a whole window and served 502s with no round trip behind them. Reversing that on my own
+  judgment, at the end of a run, on a finding the reviewer tagged non-blocking, is the user's call
+  rather than mine.
+  Cost of leaving it: unbounded Google calls for any user whose token is revoked and who keeps
+  opening polls. Cost of (b): five minutes during which an automatic check serves a cached error,
+  though "Try again" still forces a real one.
+```
+
+```
+D-25 · build · Non-blocking findings carried forward, not fixed
+  - `useDebouncedAvailabilityCommit.flush` has no caller now that ADR-2 removed the
+    drain-before-check; its async contract exists only for that deleted path. Make it internal.
+  - `readAvailabilityRecord`'s injected clock has no call site passing one, and
+    `assertSessionActive` already defaults its own. Either thread it from the handlers that have
+    an injected clock, or drop the parameter.
+  - `DynamoDBCrudPolicy` on the new function grants DeleteItem/BatchWriteItem it never uses. Every
+    peer function does the same, so narrowing it alone would be inconsistent rather than safer.
+```
+
+```
+D-26 · build · What no test in either repo can settle
+  - `bg-[var(--bone)]/16` is a bare arbitrary Tailwind opacity step. Precedent exists (`/15` in
+    join-dialog, `/35` in chip) and Tailwind 4.3.3 accepts it, but neither jest nor tsc compiles
+    CSS, so it is unproven until a real build.
+  - AC-013, AC-014, AC-015 and AC-019 are `Verify: manual` and still owed: whether booked reads as
+    distinct from unpainted and from out-of-window, whether it survives grayscale, and whether the
+    4px marker bar is legible at a 48px column on a 390px viewport.
+  - Nothing has run against a real Google account. The staging test the user planned is what
+    closes this.
+```
