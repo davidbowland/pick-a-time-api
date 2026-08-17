@@ -1,9 +1,9 @@
 # Decisions — Calendar-assisted availability
 
 ```
-STATUS: phase 4 (Generate) — consistency review resolved, writing plan.md
-Last committed: spec.md (post-review revision)
-Next action: write plan.md in devils-advocate-review-loop shape, commit at Stop 5, hand off
+STATUS: phase 4 complete — Stop 5 reached, plan.md committed
+Last committed: plan.md
+Next action: hand plan.md to devils-advocate-review-loop and build
 ```
 
 ## Working context
