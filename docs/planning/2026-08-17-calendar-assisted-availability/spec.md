@@ -101,8 +101,9 @@ New function, route `GET /sessions/{sessionId}/users/{userId}/availability/authe
 poll open.** ADR-3 has this handler call `syncCalendarAccountForPoll`, which reads two SSM
 SecureStrings via `refreshAccessToken` and writes back through `putCalendarAccount`. It needs:
 `ssm:GetParameter` on the two named Google client parameters; `kms:Decrypt` on **both**
-`CalendarTokenKey` **and the legacy key ARN** still carried by `PostCalendarSyncFunction`
-(template.yaml:986-1002) — tokens encrypted under the old key must still decrypt; and
+`CalendarTokenKey` **and the account's `aws/ssm`-managed key**, named by ARN because an alias ARN is
+not a valid `Resource` matcher for `kms:Decrypt` — without it the two SSM grants above cannot decrypt
+the SecureStrings at all, so it is not a rotated-out leftover; and
 `DynamoDBCrudPolicy` on `SessionsTable`. Enumerated rather than copy-pasted, so the grant is
 reviewed rather than inherited. Env: `KMS_CALENDAR_KEY_ID`, `CALENDAR_SYNC_FRESHNESS_MS`.
 

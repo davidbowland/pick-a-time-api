@@ -40,6 +40,7 @@ Mappings:
       logStreamFunction: log-subscriber
       maxPollDates: '90'
       maxUsersPerSession: '20'
+      calendarSyncFreshnessMs: '1800000'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions
       ssmParamPrefix: /pick-a-time
@@ -52,6 +53,7 @@ Mappings:
       logStreamFunction: log-subscriber-test
       maxPollDates: '90'
       maxUsersPerSession: '20'
+      calendarSyncFreshnessMs: '1800000'
       sessionExpireHours: '336'
       sessionsTable: pick-a-time-api-sessions-test
       ssmParamPrefix: /pick-a-time-test
@@ -786,7 +788,7 @@ Resources:
           # try/catch -- a 500 on every open. CALENDAR_SYNC_FRESHNESS_MS gone NaN fails every freshness
           # comparison silently instead, which removes the only rate limit in front of Google.
           SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
-          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
+          CALENDAR_SYNC_FRESHNESS_MS: !FindInMap [EnvironmentMap, !Ref Environment, calendarSyncFreshnessMs]
       Events:
         Http:
           Type: HttpApi
@@ -796,7 +798,10 @@ Resources:
             Method: get
             Auth:
               Authorizer: CognitoAuthorizer
-      Timeout: 60
+      # 30, not the 60 its unauthenticated sibling uses, and matching PostCalendarSyncFunction: this
+      # route reaches Google and then writes, and the HTTP API integration gives up at ~29s. A longer
+      # Lambda outlives its own caller and can persist a record after the client has seen a 504.
+      Timeout: 30
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -1103,7 +1108,7 @@ Resources:
           # Without it parseInt(undefined) is NaN and new Date(NaN).toISOString() throws before this
           # handler's try/catch is reached -- a 500 on every check, at runtime, not at deploy.
           SESSION_EXPIRE_HOURS: !FindInMap [EnvironmentMap, !Ref Environment, sessionExpireHours]
-          CALENDAR_SYNC_FRESHNESS_MS: '1800000'
+          CALENDAR_SYNC_FRESHNESS_MS: !FindInMap [EnvironmentMap, !Ref Environment, calendarSyncFreshnessMs]
       Events:
         Http:
           Type: HttpApi
