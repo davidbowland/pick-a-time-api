@@ -109,6 +109,28 @@ const respond = async (
       return status.BAD_GATEWAY
     }
 
+    // A revoked grant is emphatically NOT a 502. 502 says "the upstream is down, try again", and both
+    // halves of that are false here: Google answered perfectly promptly, and no retry can change the
+    // answer. Sending it back as a failure also strands the client, whose error path offers exactly
+    // the retry that cannot work.
+    //
+    // So it comes back 200 with calendarStatus 'revoked' and an empty grid, which lands in the same
+    // cache entry the authenticated read populates and renders the same "Reconnect" copy. The busy
+    // grid is empty for the same reason the read blanks it: the cached intervals predate the break
+    // and nothing distinguishes a stale booked hour from a current one.
+    if (synced.status === 'revoked') {
+      log('Calendar check refused: the Google grant is revoked')
+      return {
+        ...status.OK,
+        body: JSON.stringify({
+          busy: buildBusyGrid(session, []),
+          busyWindow: null,
+          calendarStatus: 'revoked',
+          lastSyncedAt: synced.lastSyncedAt,
+        }),
+      }
+    }
+
     // The same three values the authenticated read serves, assembled as one unit so they can never
     // be taken from different reads. calendarStatus is 'connected' by construction on this path --
     // an errored record left as a 502 above and a missing one as a 400 -- and is carried anyway so

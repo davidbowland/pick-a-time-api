@@ -5,8 +5,9 @@ import {
   maxPollDateRangeDays,
   sessionExpireHours,
 } from '../config'
+import { InvalidGrantError } from '../errors'
 import { CalendarAccountRecord, PollRecord } from '../types'
-import { log, logError, sanitizeErrorForLogging } from '../utils/logging'
+import { log, logError, logWarn, sanitizeErrorForLogging } from '../utils/logging'
 import { putCalendarAccount } from './dynamodb'
 import { fetchFreeBusy, refreshAccessToken } from './google-calendar'
 import { decryptRefreshToken } from './kms'
@@ -113,6 +114,25 @@ export const syncCalendarAccountForPoll = async (
   now: () => number = Date.now,
   force = false,
 ): Promise<CalendarAccountRecord> => {
+  // Terminal, and checked before anything else -- ahead of `force`, ahead of the freshness window,
+  // ahead of even computing the retention bounds. Google answered `invalid_grant` for this token,
+  // which is permanent: the grant is gone, and the only thing that can replace it is a fresh consent
+  // arriving through the OAuth callback, which writes a whole new record with status 'connected'.
+  //
+  // Without this the record's own error state removed the only rate limit in front of Google. The
+  // 'error' clause in the freshness short-circuit below deliberately bypasses the cache, so a dead
+  // token meant a Google round trip, a failure, and an ERROR log line on EVERY authenticated read --
+  // and since 1.26.0 that is every poll open by a signed-in person, twice on their first load once
+  // the participant-link invalidation refires the query. Each of those lines matches the
+  // template.yaml subscription filter and became an email. One dead token, an unbounded alert
+  // stream, and not one of the retries could ever have succeeded.
+  //
+  // `force` is deliberately not an escape hatch. A person pressing "Check again" is asking for a
+  // real check, and this is the one case where the honest answer is that no check is possible.
+  if (record.status === 'revoked') {
+    return record
+  }
+
   const bounds = retentionWindow(now)
   // Only dates inside the retention window can ever be cached, so they are the only ones the
   // coverage check below may demand. Demanding the rest would guarantee a permanent cache miss:
@@ -215,7 +235,25 @@ export const syncCalendarAccountForPoll = async (
     const persisted = await persistCalendarAccount(updated)
     return persisted ? updated : servedWithoutWrite(record, updated)
   } catch (error) {
-    logError('Calendar sync failed, serving cached busy data', sanitizeErrorForLogging(error))
+    // Two failures, two states, and the difference is whether a retry could ever answer differently.
+    //
+    // `invalid_grant` is Google saying the grant behind this token is gone -- revoked by hand, aged
+    // out of a Testing-status consent screen, or presented against a client it was not minted for.
+    // Nothing on our side can undo any of those, so this is stamped 'revoked' (terminal, see the
+    // short-circuit at the top) and logged at WARN. WARN, not ERROR, on purpose: the log
+    // subscription filter in template.yaml forwards `level="ERROR"` to the alert mailer, and an
+    // expected, per-person, self-inflicted-by-design condition is not an operational incident. It is
+    // still logged, once per record rather than once per page open, because a support question about
+    // a calendar that stopped working needs to be answerable.
+    //
+    // Everything else -- a 5xx, a timeout, a DynamoDB throttle, the interval-cap overflow above -- is
+    // transient, keeps 'error', and keeps its ERROR line. Those genuinely are worth being told about.
+    const isRevoked = error instanceof InvalidGrantError
+    if (isRevoked) {
+      logWarn('Calendar connection revoked by Google, reconnect required', sanitizeErrorForLogging(error))
+    } else {
+      logError('Calendar sync failed, serving cached busy data', sanitizeErrorForLogging(error))
+    }
     // lastSyncedAt moves even on failure: it dates the last check ATTEMPT, which is what
     // GET /calendar reports next to status: 'error' so a client can say when the connection was
     // last found broken. It no longer suppresses the next retry -- the 'error' clause in the
@@ -225,8 +263,17 @@ export const syncCalendarAccountForPoll = async (
     // expiration is NOT extended here. The clock tracks successful checks, so a connection that has
     // been broken since the day it broke still ages out on schedule rather than being kept alive by
     // its own failures.
-    const updated: CalendarAccountRecord = { ...record, lastSyncedAt: Math.floor(now() / 1000), status: 'error' }
+    const updated: CalendarAccountRecord = {
+      ...record,
+      lastSyncedAt: Math.floor(now() / 1000),
+      status: isRevoked ? 'revoked' : 'error',
+    }
     const persisted = await persistCalendarAccount(updated)
+    // A revoked record whose write did NOT land is the one case where the terminal state is not
+    // durable: servedWithoutWrite rolls lastSyncedAt back to the stored value, and the stored status
+    // is still 'error', so the next read retries and logs again. That is the correct trade -- the
+    // alternative is claiming a terminal state the table does not hold -- and it self-corrects on the
+    // first check whose write succeeds.
     return persisted ? updated : servedWithoutWrite(record, updated)
   }
 }

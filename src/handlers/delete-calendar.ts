@@ -4,7 +4,7 @@ import { revokeToken } from '../services/google-calendar'
 import { decryptRefreshToken } from '../services/kms'
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from '../types'
 import { extractAuthContext } from '../utils/auth'
-import { log, logError, redactEvent, sanitizeErrorForLogging } from '../utils/logging'
+import { log, logError, logWarn, redactEvent, sanitizeErrorForLogging } from '../utils/logging'
 import status from '../utils/status'
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
@@ -22,8 +22,17 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     if (record) {
       const refreshToken = await decryptRefreshToken(record.refreshTokenEncrypted).catch(() => null)
       if (refreshToken) {
+        // WARN, not ERROR: the alert mailer is wired to `level="ERROR"` (see the log subscription
+        // filters in template.yaml), and the commonest reason this call fails is the least alarming
+        // one -- the grant is already gone, which is exactly the state a record stamped 'revoked' is
+        // in, and Google answers 400 for a token it has already forgotten. Disconnecting an
+        // already-dead calendar is a success, not an incident, and the delete below runs either way,
+        // so nothing is left behind for anyone to act on.
         await revokeToken(refreshToken).catch((error) =>
-          logError('Failed to revoke token at Google', sanitizeErrorForLogging(error)),
+          logWarn('Could not revoke the token at Google; deleting the local record anyway', {
+            error: sanitizeErrorForLogging(error),
+            recordStatus: record.status,
+          }),
         )
       }
       await deleteCalendarAccount(auth.googleSub)

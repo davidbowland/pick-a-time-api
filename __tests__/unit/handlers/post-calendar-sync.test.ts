@@ -275,6 +275,33 @@ describe('post-calendar-sync', () => {
       expect(result.body as string).not.toContain('busy')
     })
 
+    // A revoked grant is the one failure that must not come back as a failure. 502 claims the upstream
+    // is down and invites a retry; here Google answered immediately and no retry can ever succeed, so
+    // the client is told the state instead and shows a Reconnect control rather than Try again.
+    it('should return 200 and calendarStatus revoked, not a 502, when the grant is gone', async () => {
+      jest
+        .mocked(calendarSync)
+        .syncCalendarAccountForPoll.mockResolvedValueOnce({ ...calendarAccountRecord, status: 'revoked' })
+
+      const result = await postCalendarSync(event, now)
+
+      const body = JSON.parse(result.body as string)
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+      expect(body.calendarStatus).toBe('revoked')
+      expect(body.busyWindow).toBeNull()
+      expect(body.lastSyncedAt).toBe(calendarAccountRecord.lastSyncedAt)
+    })
+
+    it('should draw nothing for a revoked grant, rather than the intervals it cached before the break', async () => {
+      jest
+        .mocked(calendarSync)
+        .syncCalendarAccountForPoll.mockResolvedValueOnce({ ...calendarAccountRecord, status: 'revoked' })
+
+      const body = JSON.parse((await postCalendarSync(event, now)).body as string)
+
+      expect(body.busy.flat()).not.toContain(true)
+    })
+
     it('should return 502 when the sync throws', async () => {
       jest.mocked(calendarSync).syncCalendarAccountForPoll.mockRejectedValueOnce(new Error('Google unavailable'))
 

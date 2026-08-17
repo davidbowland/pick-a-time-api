@@ -76,18 +76,27 @@ export interface CalendarAccountRecord {
   googleSub: string
   refreshTokenEncrypted: string // KMS-encrypted, base64
   scope: string
-  status: 'connected' | 'error'
+  // 'error' is transient and retried on every check; 'revoked' is terminal and never retried. The
+  // difference is whether another Google round trip could possibly answer differently: a 5xx or a
+  // dropped connection could, an `invalid_grant` could not -- only a fresh consent can, and that
+  // arrives through the OAuth callback writing a whole new record.
+  status: 'connected' | 'error' | 'revoked'
   lastSyncedAt: number
   syncedRange: DateWindow | null // ISO dates covered by busyIntervals
   busyIntervals: { start: string; end: string }[] // raw UTC instants from Google's freebusy response
   expiration: number
 }
 
-// What the client is told about the calendar behind a busy grid. Three states, not two, and the
+// What the client is told about the calendar behind a busy grid. Four states, not two, and every
 // distinction is load-bearing: an errored connection and a connected calendar with nothing booked
 // both produce an all-false grid, so without this the client cannot tell "we could not reach your
 // calendar" from "your calendar is clear" -- and those get opposite copy (AC-030, AC-034, AC-042).
-export type CalendarStatus = 'connected' | 'error' | 'not_connected'
+//
+// 'revoked' is separated from 'error' for the same reason and one more: the two need opposite
+// controls. An error is worth another press of "Try again"; a revoked grant is not -- no number of
+// retries can mint a working token, so offering one sends somebody round a loop that cannot end. It
+// gets "Reconnect" instead.
+export type CalendarStatus = 'connected' | 'error' | 'not_connected' | 'revoked'
 
 // The owner-only availability response. `free` and `busy` share their dimensions by construction:
 // both are built from the same PollRecord in the same request, which is why they are served from

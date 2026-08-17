@@ -1,10 +1,11 @@
 import { calendarAccountRecord, session } from '../__mocks__'
 import { CALENDAR_ACCOUNT_TTL_SECONDS, maxCachedBusyIntervals } from '@config'
+import { InvalidGrantError } from '@errors'
 import { syncCalendarAccountForPoll } from '@services/calendar-sync'
 import * as dynamodb from '@services/dynamodb'
 import * as googleCalendar from '@services/google-calendar'
 import * as kms from '@services/kms'
-import { log, logError } from '@utils/logging'
+import { log, logError, logWarn } from '@utils/logging'
 
 jest.mock('@services/dynamodb')
 jest.mock('@services/google-calendar')
@@ -13,6 +14,7 @@ jest.mock('@utils/logging', () => ({
   ...jest.requireActual('@utils/logging'),
   log: jest.fn(),
   logError: jest.fn(),
+  logWarn: jest.fn(),
 }))
 
 describe('calendar-sync', () => {
@@ -172,6 +174,111 @@ describe('calendar-sync', () => {
       expect(googleCalendar.fetchFreeBusy).toHaveBeenCalled()
       expect(result.status).toBe('connected')
       expect(result.busyIntervals).toEqual([rawInterval])
+    })
+
+    // A revoked grant is terminal. Every test below exists because the alternative -- treating it as
+    // the transient 'error' it used to be folded into -- turned one dead token into a Google round
+    // trip and an alert email on every single poll open, none of which could ever have succeeded.
+    describe('a revoked grant', () => {
+      const staleNow = () => calendarAccountRecord.lastSyncedAt * 1000 + 3_600_000 // past the 30-min window
+      const revokedRecord = { ...calendarAccountRecord, status: 'revoked' as const }
+
+      it('should stamp status revoked when Google rejects the refresh token', async () => {
+        jest
+          .mocked(googleCalendar)
+          .refreshAccessToken.mockRejectedValueOnce(new InvalidGrantError('Google refresh token is no longer valid'))
+
+        const result = await syncCalendarAccountForPoll(calendarAccountRecord, session, staleNow)
+
+        expect(result.status).toBe('revoked')
+        expect(dynamodb.putCalendarAccount).toHaveBeenCalledWith(expect.objectContaining({ status: 'revoked' }))
+      })
+
+      // The whole point of the change. logError is what the template.yaml subscription filter
+      // forwards to the alert mailer, so an expected per-person condition must not reach it.
+      it('should log at warn rather than error, so it does not page anybody', async () => {
+        jest
+          .mocked(googleCalendar)
+          .refreshAccessToken.mockRejectedValueOnce(new InvalidGrantError('Google refresh token is no longer valid'))
+
+        await syncCalendarAccountForPoll(calendarAccountRecord, session, staleNow)
+
+        expect(logWarn).toHaveBeenCalledWith(
+          'Calendar connection revoked by Google, reconnect required',
+          'Google refresh token is no longer valid',
+        )
+        expect(logError).not.toHaveBeenCalled()
+      })
+
+      it('should keep serving the cached busyIntervals it last read successfully', async () => {
+        jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(new InvalidGrantError('nope'))
+
+        const result = await syncCalendarAccountForPoll(calendarAccountRecord, session, staleNow)
+
+        expect(result.busyIntervals).toEqual(calendarAccountRecord.busyIntervals)
+      })
+
+      // The alert storm, expressed as a test: a stale, out-of-range record would fail both halves of
+      // the freshness short-circuit, so if the terminal check were not ahead of them this would reach
+      // Google -- as it did on every poll open before this fix.
+      it('should never call Google again, however stale or uncovered the record is', async () => {
+        const staleAndUncovered = { ...revokedRecord, syncedRange: { start: '2020-01-01', end: '2020-01-31' } }
+
+        const result = await syncCalendarAccountForPoll(staleAndUncovered, session, staleNow)
+
+        expect(googleCalendar.refreshAccessToken).not.toHaveBeenCalled()
+        expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+        expect(result).toEqual(staleAndUncovered)
+      })
+
+      it('should not write, and not log, when it short-circuits', async () => {
+        await syncCalendarAccountForPoll(revokedRecord, session, staleNow)
+
+        expect(dynamodb.putCalendarAccount).not.toHaveBeenCalled()
+        expect(logError).not.toHaveBeenCalled()
+        expect(logWarn).not.toHaveBeenCalled()
+      })
+
+      // force is what "Check again" sends. This is the one case where the honest answer is that no
+      // check is possible, so force must not reopen the path -- a button that fails identically every
+      // time it is pressed is worse than one that is not offered.
+      it('should ignore force, because no round trip can mint a working token', async () => {
+        const result = await syncCalendarAccountForPoll(revokedRecord, session, staleNow, true)
+
+        expect(googleCalendar.refreshAccessToken).not.toHaveBeenCalled()
+        expect(result).toEqual(revokedRecord)
+      })
+
+      it('should not leak the client secret or the refresh token into the warn line', async () => {
+        const axiosShapedGrantError = Object.assign(new InvalidGrantError('Request failed with status code 400'), {
+          isAxiosError: true,
+          response: { status: 400 },
+          config: { params: { client_secret: 'shh-client-secret', refresh_token: 'shh-refresh-token' } },
+        })
+        jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(axiosShapedGrantError)
+
+        await syncCalendarAccountForPoll(calendarAccountRecord, session, staleNow)
+
+        const logged = JSON.stringify(jest.mocked(logWarn).mock.calls)
+        expect(logged).not.toContain('shh-client-secret')
+        expect(logged).not.toContain('shh-refresh-token')
+        expect(logged).not.toContain('config')
+      })
+
+      // The terminal state is only as durable as the write that records it. When the write is lost,
+      // this request still answers 'revoked' -- it knows what Google said -- but the stamps stay at
+      // the stored record's values, so the next check re-reads an 'error' record and tries again
+      // rather than trusting a terminal state the table does not hold.
+      it('should still report revoked when the write is lost, without claiming the stamps landed', async () => {
+        jest.mocked(googleCalendar).refreshAccessToken.mockRejectedValueOnce(new InvalidGrantError('nope'))
+        jest.mocked(dynamodb).putCalendarAccount.mockRejectedValueOnce(new Error('ProvisionedThroughputExceeded'))
+
+        const result = await syncCalendarAccountForPoll(calendarAccountRecord, session, staleNow)
+
+        expect(result.status).toBe('revoked')
+        expect(result.lastSyncedAt).toBe(calendarAccountRecord.lastSyncedAt)
+        expect(result.expiration).toBe(calendarAccountRecord.expiration)
+      })
     })
 
     it('should sanitize an Axios-shaped refreshAccessToken failure before logging it, never logging config secrets', async () => {

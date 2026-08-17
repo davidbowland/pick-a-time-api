@@ -8,7 +8,7 @@ import {
   userId,
   userRecord,
 } from '../__mocks__'
-import { NotFoundError } from '@errors'
+import { InvalidGrantError, NotFoundError } from '@errors'
 import { getAvailabilityAuthed, handler } from '@handlers/get-availability-authed'
 import * as availabilityService from '@services/availability'
 import * as dynamodb from '@services/dynamodb'
@@ -240,6 +240,52 @@ describe('get-availability-authed', () => {
       expect(body.calendarStatus).toBe('error')
       expect(body.busy).toEqual(nothingBusy)
       expect(body.free).toEqual(availabilityRecord.free)
+    })
+
+    // The read is where the alert storm actually happened: since ADR-3 every poll open by a signed-in
+    // person runs the refresh path, so a dead grant produced a Google round trip and an ERROR line per
+    // open. These assert the two halves of the fix -- the status survives to the client instead of
+    // being flattened into 'error', and a record already known to be revoked costs no round trip.
+    it('should report revoked rather than error when Google rejects the refresh token', async () => {
+      jest.mocked(dynamodb).getCalendarAccount.mockResolvedValueOnce(staleAccount)
+      jest
+        .mocked(googleCalendar)
+        .refreshAccessToken.mockRejectedValueOnce(new InvalidGrantError('Google refresh token is no longer valid'))
+
+      const result = await getAvailabilityAuthed(event, now)
+
+      const body = JSON.parse(result.body as string)
+      expect(result).toEqual(expect.objectContaining({ statusCode: 200 }))
+      expect(body.calendarStatus).toBe('revoked')
+      expect(body.busy).toEqual(nothingBusy)
+      expect(body.busyWindow).toBeNull()
+      // The participant's own painted availability is untouched by any of this.
+      expect(body.free).toEqual(availabilityRecord.free)
+    })
+
+    it('should make no Google call at all for an already-revoked record', async () => {
+      jest.mocked(dynamodb).getCalendarAccount.mockResolvedValueOnce({ ...staleAccount, status: 'revoked' as const })
+
+      const result = await getAvailabilityAuthed(event, now)
+
+      expect(googleCalendar.refreshAccessToken).not.toHaveBeenCalled()
+      expect(googleCalendar.fetchFreeBusy).not.toHaveBeenCalled()
+      expect(JSON.parse(result.body as string).calendarStatus).toBe('revoked')
+    })
+
+    it('should not log an error for a revoked grant, however many times the poll is opened', async () => {
+      const revoked = { ...staleAccount, status: 'revoked' as const }
+      jest
+        .mocked(dynamodb)
+        .getCalendarAccount.mockResolvedValueOnce(revoked)
+        .mockResolvedValueOnce(revoked)
+        .mockResolvedValueOnce(revoked)
+
+      await getAvailabilityAuthed(event, now)
+      await getAvailabilityAuthed(event, now)
+      await getAvailabilityAuthed(event, now)
+
+      expect(logError).not.toHaveBeenCalled()
     })
 
     it('should report busyWindow from syncedRange and not from the poll dates', async () => {

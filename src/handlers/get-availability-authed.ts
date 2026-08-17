@@ -46,15 +46,23 @@ const readCallerCalendar = async (googleSub: string, poll: PollRecord, now: () =
   // now the only rate limit between a poll open and a Google round trip.
   //
   // Not wrapped in its own catch: syncCalendarAccountForPoll already handles a Google failure by
-  // stamping 'error' and returning the last good cache, so a read survives an outage as a 200 with
-  // calendarStatus 'error'. Anything that still escapes it is a defect, not an upstream problem, and
-  // belongs in the handler's 500 path where sanitizeErrorForLogging is applied.
+  // stamping 'error' or 'revoked' and returning the last good cache, so a read survives an outage as
+  // a 200. Anything that still escapes it is a defect, not an upstream problem, and belongs in the
+  // handler's 500 path where sanitizeErrorForLogging is applied.
+  //
+  // A record already stamped 'revoked' costs no Google call at all -- the sync service returns it
+  // untouched -- so a dead grant is one cheap DynamoDB read per open rather than a failing round trip.
   const synced = await syncCalendarAccountForPoll(account, poll, now)
-  if (synced.status === 'error') {
-    // AC-030. The errored record still carries the intervals from whichever check last succeeded.
+  if (synced.status !== 'connected') {
+    // AC-030. A broken record still carries the intervals from whichever check last succeeded.
     // Drawing them would present a connection that is broken right now as freshly read, and the
-    // reader has no way to tell a stale booked hour from a current one. Draw nothing, say 'error'.
-    return { busy: noBusy(poll), busyWindow: null, calendarStatus: 'error' }
+    // reader has no way to tell a stale booked hour from a current one. Draw nothing.
+    //
+    // The status is passed through rather than flattened to 'error', because 'revoked' and 'error'
+    // want opposite controls on the client: one is worth another press of "Try again", the other can
+    // only be reconnected. Flattening them here is what would put somebody on a retry that is
+    // incapable of succeeding.
+    return { busy: noBusy(poll), busyWindow: null, calendarStatus: synced.status }
   }
 
   return {

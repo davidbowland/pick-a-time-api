@@ -14,6 +14,7 @@ jest.mock('@utils/logging', () => ({
   ...jest.requireActual('@utils/logging'),
   log: jest.fn(),
   logError: jest.fn(),
+  logWarn: jest.fn(),
 }))
 
 describe('delete-calendar', () => {
@@ -53,15 +54,33 @@ describe('delete-calendar', () => {
       const result = await handler(event)
 
       expect(result).toEqual(expect.objectContaining({ statusCode: 204 }))
-      expect(logging.logError).toHaveBeenCalledWith('Failed to revoke token at Google', {
-        message: axiosError.message,
-        status: 400,
-      })
-      const loggedCall = jest
-        .mocked(logging)
-        .logError.mock.calls.find(([firstArg]) => firstArg === 'Failed to revoke token at Google')
+      expect(logging.logWarn).toHaveBeenCalledWith(
+        'Could not revoke the token at Google; deleting the local record anyway',
+        { error: { message: axiosError.message, status: 400 }, recordStatus: calendarAccountRecord.status },
+      )
+      const loggedCall = jest.mocked(logging).logWarn.mock.calls[0]
       expect(JSON.stringify(loggedCall)).not.toContain('config')
       expect(JSON.stringify(loggedCall)).not.toContain('shh-the-refresh-token-itself')
+    })
+
+    // Disconnecting an already-revoked calendar is the recovery path -- it is how somebody clears a
+    // dead record so they can connect again -- and Google answers 400 for a token it has already
+    // forgotten. Logging that at ERROR sent an alert email for a successful, deliberate user action.
+    it('should not log an error when revoking a grant Google has already forgotten', async () => {
+      jest
+        .mocked(dynamodb)
+        .getCalendarAccount.mockResolvedValueOnce({ ...calendarAccountRecord, status: 'revoked' as const })
+      jest.mocked(googleCalendar).revokeToken.mockRejectedValueOnce(new Error('Request failed with status code 400'))
+
+      const result = await handler(event)
+
+      expect(result).toEqual(expect.objectContaining({ statusCode: 204 }))
+      expect(dynamodb.deleteCalendarAccount).toHaveBeenCalled()
+      expect(logging.logError).not.toHaveBeenCalled()
+      expect(logging.logWarn).toHaveBeenCalledWith(
+        'Could not revoke the token at Google; deleting the local record anyway',
+        expect.objectContaining({ recordStatus: 'revoked' }),
+      )
     })
 
     it('should return NO_CONTENT with no side effects when no connection exists', async () => {
