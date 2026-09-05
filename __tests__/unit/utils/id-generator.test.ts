@@ -1,16 +1,53 @@
 import { adjectives } from '@assets/adjectives'
+import { excludedIdWords } from '@assets/excluded-id-words'
 import { nouns } from '@assets/nouns'
-import { generateUserId } from '@utils/id-generator'
+import { generateSessionId, generateUserId } from '@utils/id-generator'
 
 describe('id-generator', () => {
-  describe('generateUserId', () => {
-    const midRandom = (max: number) => Math.floor(max / 2)
+  const midRandom = (max: number) => Math.floor(max / 2)
 
+  describe('generateSessionId', () => {
+    it('should return an adjective-noun formatted ID', () => {
+      const id = generateSessionId(midRandom)
+      const [adj, noun] = id.split('-')
+
+      expect(id).toMatch(/^[a-z]+-[a-z]+$/)
+      expect(adjectives).toContain(adj)
+      expect(nouns).toContain(noun)
+    })
+
+    it('should use the first word of each list', () => {
+      expect(generateSessionId(() => 0)).toEqual(`${adjectives[0]}-${nouns[0]}`)
+    })
+
+    it('should use the last word of each list', () => {
+      expect(generateSessionId((max: number) => max - 1)).toEqual(
+        `${adjectives[adjectives.length - 1]}-${nouns[nouns.length - 1]}`,
+      )
+    })
+
+    it('should never build an ID from an excluded word', () => {
+      const ids = adjectives.map((_, index) => generateSessionId(() => index))
+      const unsafe = ids.filter((id) => id.split('-').filter((word) => excludedIdWords.has(word)).length > 0)
+
+      expect(unsafe).toEqual([])
+    })
+  })
+
+  describe('generateUserId', () => {
     it('should return an adjective-noun formatted ID', () => {
       const id = generateUserId([], 5, midRandom)
       const [adj, noun] = id.split('-')
+      expect(id).toMatch(/^[a-z]+-[a-z]+$/)
       expect(adjectives).toContain(adj)
       expect(nouns).toContain(noun)
+    })
+
+    it('should never build an ID from an excluded word', () => {
+      const ids = adjectives.map((_, index) => generateUserId([], 5, () => index))
+      const unsafe = ids.filter((id) => id.split('-').filter((word) => excludedIdWords.has(word)).length > 0)
+
+      expect(unsafe).toEqual([])
     })
 
     it('should return an ID not in the existing list', () => {
